@@ -65,7 +65,12 @@ app.use(express.urlencoded({ extended: true }));
 app.post('/api/appointments', async (req, res) => {
   console.log('POST /api/appointments received', { body: req.body });
 
-  const { firstName, lastName, time, service } = req.body;
+  const { masterId, firstName, lastName, time, service } = req.body;
+  const mId = parseInt(masterId, 10);
+  if (Number.isNaN(mId)) {
+    return res.status(400).json({ error: 'Lütfen usta seçin.' });
+  }
+
   if (!firstName || !lastName || !time || !service) {
     return res.status(400).json({ error: 'Lütfen tüm alanları doldurun.' });
   }
@@ -76,14 +81,13 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    const bufferMinutes = await db.getServiceBuffer(service);
-    const masterCount = await db.getSetting('masterCount');
-    const conflict = await db.hasAppointmentConflict(requestedTime.toISOString(), bufferMinutes, masterCount);
+    const bufferMinutes = await db.getServiceBuffer(mId, service);
+    const conflict = await db.hasAppointmentConflict(mId, requestedTime.toISOString(), bufferMinutes);
     if (conflict) {
-      return res.status(409).json({ error: `Seçtiğiniz saat, mevcut randevulardan en az ${bufferMinutes} dakika uzakta olmalı veya usta sayısı kadar randevu dolmuş olabilir.` });
+      return res.status(409).json({ error: `Seçtiğiniz saat çakışma nedeniyle dolu.` });
     }
 
-    const appointment = await db.createAppointment({ firstName, lastName, time, service });
+    const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service });
     res.json(appointment);
     sendTelegramNotification(appointment);
   } catch (error) {
@@ -91,58 +95,123 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
+// list masters
+app.get('/api/masters', async (req, res) => {
+  try {
+    const masters = await db.getMasters();
+    res.json(masters);
+  } catch (e) {
+    res.status(500).json({ error: 'Ustalar yüklenemedi.' });
+  }
+});
+
+// availability per master
+app.get('/api/availability', async (req, res) => {
+  const { date, masterId } = req.query;
+  if (!date) {
+    return res.status(400).json({ error: 'Tarih parametresi eksik.' });
+  }
+  const mId = masterId ? parseInt(masterId, 10) : null;
+  if (!mId) return res.status(400).json({ error: 'Usta parametresi eksik.' });
+
+  console.log('/api/availability called', { date, masterId: mId });
+
+  try {
+    const appointments = await db.getAppointmentsByDate(date, mId);
+
+    const appointmentsWithBuffer = await Promise.all(appointments.map(async (a) => {
+      const buffer = await db.getServiceBuffer(mId, a.service);
+      return { ...a, bufferMinutes: buffer };
+    }));
+
+    const closures = await db.getClosuresByDate(mId, date);
+
+    res.json({ appointments: appointmentsWithBuffer, closures });
+  } catch (error) {
+    console.error('Error in /api/availability:', error);
+    res.status(500).json({ error: 'Uygunluk bilgisi alınamadı.' });
+  }
+});
+
+app.get('/api/closures', adminAuth, async (req, res) => {
+  const { masterId, date } = req.query;
+  const mId = masterId ? parseInt(masterId, 10) : null;
+  if (!mId) return res.status(400).json({ error: 'Usta seçimi gerekli.' });
+  if (!date) return res.status(400).json({ error: 'Tarih parametresi eksik.' });
+
+  try {
+    const closures = await db.getClosuresByDate(mId, date);
+    res.json({ closures });
+  } catch (error) {
+    res.status(500).json({ error: 'Kapatmalar yüklenemedi.' });
+  }
+});
+
+app.delete('/api/closures/:id', adminAuth, async (req, res) => {
+  const closureId = parseInt(req.params.id, 10);
+  if (Number.isNaN(closureId)) {
+    return res.status(400).json({ error: 'Geçersiz kapanma kimliği.' });
+  }
+
+  try {
+    const result = await db.deleteClosure(closureId);
+    if (!result.deleted) {
+      return res.status(404).json({ error: 'Kapatma bulunamadı.' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Kapatma silinemedi.' });
+  }
+});
+
+// closures endpoints
+app.post('/api/closures', adminAuth, async (req, res) => {
+  const { masterId, start, end } = req.body;
+  if (!masterId || !start || !end) return res.status(400).json({ error: 'Eksik parametre' });
+  try {
+    const c = await db.addClosure(masterId, start, end);
+    res.json(c);
+  } catch (e) {
+    res.status(500).json({ error: 'Kapatma eklenemedi.' });
+  }
+});
+
 app.get('/api/appointments', adminAuth, async (req, res) => {
   try {
-    const appointments = await db.getAppointments();
+    const masterId = req.query.masterId ? parseInt(req.query.masterId, 10) : null;
+    const appointments = await db.getAppointments(masterId);
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ error: 'Randevular yüklenemedi.' });
   }
 });
 
-app.get('/api/availability', async (req, res) => {
-  const { date } = req.query;
-  if (!date) {
-    return res.status(400).json({ error: 'Tarih parametresi eksik.' });
-  }
 
-  try {
-    const masterCount = await db.getSetting('masterCount');
-    const appointments = await db.getAppointmentsByDate(date);
-
-    // attach service-specific buffer to each appointment
-    const appointmentsWithBuffer = await Promise.all(appointments.map(async (a) => {
-      const buffer = await db.getServiceBuffer(a.service);
-      return { ...a, bufferMinutes: buffer };
-    }));
-
-    res.json({ masterCount, appointments: appointmentsWithBuffer });
-  } catch (error) {
-    res.status(500).json({ error: 'Uygunluk bilgisi alınamadı.' });
-  }
-});
 
 app.get('/api/settings', adminAuth, async (req, res) => {
   try {
-    const masterCount = await db.getSetting('masterCount');
-    // list of known services
+    const masterId = req.query.masterId ? parseInt(req.query.masterId, 10) : null;
+    if (!masterId) {
+      return res.status(400).json({ error: 'Usta seçimi gerekli.' });
+    }
+
     const SERVICES = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
     const serviceBuffers = {};
     for (const s of SERVICES) {
-      serviceBuffers[s] = await db.getServiceBuffer(s);
+      serviceBuffers[s] = await db.getServiceBuffer(masterId, s);
     }
-    res.json({ masterCount, serviceBuffers });
+    res.json({ serviceBuffers, masterId });
   } catch (error) {
     res.status(500).json({ error: 'Ayarlar yüklenemedi.' });
   }
 });
 
 app.post('/api/settings', adminAuth, async (req, res) => {
-  const { serviceBuffers, masterCount } = req.body;
-  const masterValue = parseInt(masterCount, 10);
+  const { serviceBuffers, masterId } = req.body;
+  const selectedMasterId = masterId ? parseInt(masterId, 10) : null;
 
-  if (Number.isNaN(masterValue) || masterValue < 1) {
-    return res.status(400).json({ error: 'Lütfen en az 1 usta sayısı girin.' });
+  if (!selectedMasterId) {
+    return res.status(400).json({ error: 'Lütfen önce bir usta seçin.' });
   }
 
   if (!serviceBuffers || typeof serviceBuffers !== 'object') {
@@ -150,17 +219,15 @@ app.post('/api/settings', adminAuth, async (req, res) => {
   }
 
   try {
-    // save each service buffer
     for (const [service, value] of Object.entries(serviceBuffers)) {
       const v = parseInt(value, 10);
       if (Number.isNaN(v) || v < 0) {
         return res.status(400).json({ error: `Geçersiz süre değeri for service ${service}.` });
       }
-      await db.setServiceBuffer(service, v);
+      await db.setServiceBuffer(selectedMasterId, service, v);
     }
 
-    await db.setSetting('masterCount', masterValue);
-    res.json({ masterCount: masterValue, serviceBuffers });
+    res.json({ serviceBuffers, masterId: selectedMasterId });
   } catch (error) {
     res.status(500).json({ error: 'Ayar kaydedilemedi.' });
   }

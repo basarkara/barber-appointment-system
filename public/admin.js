@@ -7,15 +7,20 @@ const timelineTitle = document.getElementById('timelineTitle');
 const timeline = document.getElementById('timeline');
 const settingsForm = document.getElementById('settingsForm');
 const serviceSettingsContainer = document.getElementById('serviceSettings');
-const masterCountInput = document.getElementById('masterCount');
 const settingsMessage = document.getElementById('settingsMessage');
+const adminMasterSelect = document.getElementById('adminMasterSelect');
+const closureForm = document.getElementById('closureForm');
+const closureStartInput = document.getElementById('closureStart');
+const closureEndInput = document.getElementById('closureEnd');
+const closureMessage = document.getElementById('closureMessage');
+const closureList = document.getElementById('closureList');
 
 let appointments = [];
 let displayedMonth = new Date();
 displayedMonth.setDate(1);
 let selectedDate = new Date();
 let currentBufferMinutes = 30;
-let currentMasterCount = 1;
+let currentClosures = [];
 const SERVICES = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
 
 const WEEKDAYS = ['Pts', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
@@ -82,11 +87,12 @@ function renderCalendar() {
   `;
 
   document.querySelectorAll('.calendar-cell.day').forEach(button => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       const [year, month, day] = button.dataset.date.split('-').map(Number);
       selectedDate = new Date(year, month - 1, day);
       renderCalendar();
       renderTimeline();
+      await loadClosures();
     });
   });
 }
@@ -128,6 +134,9 @@ function initControls() {
   });
 
   settingsForm.addEventListener('submit', saveSettings);
+  if (closureForm) {
+    closureForm.addEventListener('submit', saveClosure);
+  }
 }
 
 async function parseJsonSafely(response) {
@@ -141,14 +150,19 @@ async function parseJsonSafely(response) {
 
 async function loadSettings() {
   try {
-    const response = await fetch('/api/settings');
+    const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+    if (!masterId) {
+      settingsMessage.textContent = 'Lütfen önce bir usta seçin.';
+      settingsMessage.className = 'message warning';
+      serviceSettingsContainer.innerHTML = '';
+      closureList.innerHTML = '';
+      return;
+    }
+
+    const response = await fetch(`/api/settings?masterId=${encodeURIComponent(masterId)}`);
     const settings = await parseJsonSafely(response);
     if (!response.ok) throw new Error(settings.error || 'Ayarlar yüklenemedi.');
-    currentMasterCount = settings.masterCount ?? currentMasterCount;
-    currentMasterCount = Number(currentMasterCount);
-    masterCountInput.value = currentMasterCount;
 
-    // render service-specific inputs
     serviceSettingsContainer.innerHTML = '';
     const buffers = settings.serviceBuffers || {};
     for (const s of SERVICES) {
@@ -157,6 +171,8 @@ async function loadSettings() {
       row.innerHTML = `${s}<input type="number" name="service_${s}" data-service="${s}" min="0" step="1" value="${v}" required />`;
       serviceSettingsContainer.appendChild(row);
     }
+    settingsMessage.textContent = '';
+    settingsMessage.className = 'message';
   } catch (error) {
     settingsMessage.textContent = error.message;
     settingsMessage.className = 'message error';
@@ -166,13 +182,6 @@ async function loadSettings() {
 async function saveSettings(event) {
   event.preventDefault();
   settingsMessage.className = 'message';
-
-  const masterValue = parseInt(masterCountInput.value, 10);
-  if (Number.isNaN(masterValue) || masterValue < 1) {
-    settingsMessage.textContent = 'Lütfen en az 1 usta sayısı girin.';
-    settingsMessage.classList.add('error');
-    return;
-  }
 
   // collect service buffers
   const serviceBuffers = {};
@@ -189,16 +198,22 @@ async function saveSettings(event) {
   }
 
   try {
+    const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+    if (!masterId) {
+      settingsMessage.textContent = 'Lütfen önce bir usta seçin.';
+      settingsMessage.classList.add('error');
+      return;
+    }
+
     const response = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serviceBuffers, masterCount: masterValue })
+      body: JSON.stringify({ serviceBuffers, masterId })
     });
 
     const result = await parseJsonSafely(response);
     if (!response.ok) throw new Error(result.error || 'Ayar kaydedilemedi.');
 
-    currentMasterCount = result.masterCount;
     settingsMessage.textContent = 'Ayar kaydedildi.';
     settingsMessage.classList.add('success');
   } catch (error) {
@@ -207,9 +222,127 @@ async function saveSettings(event) {
   }
 }
 
+function renderClosureList() {
+  if (!currentClosures.length) {
+    closureList.innerHTML = '<p class="empty-state">Seçilen gün için kapatma bulunmuyor.</p>';
+    return;
+  }
+
+  closureList.innerHTML = currentClosures.map(closure => {
+    const start = new Date(closure.start).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const end = new Date(closure.end).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `
+      <div class="closure-item">
+        <div class="closure-label"><strong>${start} - ${end}</strong></div>
+        <button type="button" class="closure-remove-button" data-closure-id="${closure.id}">İptal et</button>
+      </div>
+    `;
+  }).join('');
+
+  closureList.querySelectorAll('.closure-remove-button').forEach(button => {
+    button.addEventListener('click', async () => {
+      const closureId = button.dataset.closureId;
+      await deleteClosure(closureId);
+    });
+  });
+}
+
+async function loadClosures() {
+  const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+  if (!masterId) {
+    closureList.innerHTML = '';
+    return;
+  }
+
+  const currentDate = formatDateKey(selectedDate);
+  try {
+    const response = await fetch(`/api/closures?masterId=${encodeURIComponent(masterId)}&date=${encodeURIComponent(currentDate)}`);
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Kapatmalar yüklenemedi.');
+    currentClosures = result.closures || [];
+    renderClosureList();
+  } catch (error) {
+    closureList.innerHTML = `<p class="message error">${error.message}</p>`;
+  }
+}
+
+async function deleteClosure(closureId) {
+  const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+  if (!masterId) {
+    closureMessage.textContent = 'Lütfen önce bir usta seçin.';
+    closureMessage.classList.add('error');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/closures/${encodeURIComponent(closureId)}`, {
+      method: 'DELETE'
+    });
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Kapatma silinemedi.');
+    closureMessage.textContent = 'Kapatma iptal edildi.';
+    closureMessage.classList.add('success');
+    await loadClosures();
+    renderCalendar();
+    renderTimeline();
+  } catch (error) {
+    closureMessage.textContent = error.message;
+    closureMessage.classList.add('error');
+  }
+}
+
+async function saveClosure(event) {
+  event.preventDefault();
+  closureMessage.className = 'message';
+
+  const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+  if (!masterId) {
+    closureMessage.textContent = 'Lütfen önce bir usta seçin.';
+    closureMessage.classList.add('error');
+    return;
+  }
+
+  const start = closureStartInput.value;
+  const end = closureEndInput.value;
+  if (!start || !end) {
+    closureMessage.textContent = 'Başlangıç ve bitiş zamanlarını girin.';
+    closureMessage.classList.add('error');
+    return;
+  }
+
+  if (new Date(start) >= new Date(end)) {
+    closureMessage.textContent = 'Bitiş zamanı başlangıçtan sonra olmalıdır.';
+    closureMessage.classList.add('error');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/closures', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ masterId, start, end })
+    });
+
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Kapatma eklenemedi.');
+
+    closureMessage.textContent = 'Kapatma eklendi.';
+    closureMessage.classList.add('success');
+    closureStartInput.value = '';
+    closureEndInput.value = '';
+    await loadClosures();
+    renderCalendar();
+    renderTimeline();
+  } catch (error) {
+    closureMessage.textContent = error.message;
+    closureMessage.classList.add('error');
+  }
+}
+
 async function loadAppointments() {
   try {
-    const response = await fetch('/api/appointments');
+    const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+    const response = await fetch(`/api/appointments${masterId ? `?masterId=${encodeURIComponent(masterId)}` : ''}`);
     if (!response.ok) throw new Error('Randevular yüklenemedi.');
     const result = await response.json();
 
@@ -222,10 +355,30 @@ async function loadAppointments() {
     await loadSettings();
     renderCalendar();
     renderTimeline();
+    await loadClosures();
   } catch (error) {
     timeline.innerHTML = `<p class="message error">${error.message}</p>`;
     selectedDaySummary.textContent = '';
   }
 }
 
-loadAppointments();
+async function loadMasters() {
+  if (!adminMasterSelect) return;
+  try {
+    const res = await fetch('/api/masters');
+    const masters = await res.json();
+    adminMasterSelect.innerHTML = `<option value="">Bir usta seçin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+    adminMasterSelect.addEventListener('change', async () => {
+      await loadAppointments();
+      await loadSettings();
+      renderCalendar();
+      renderTimeline();
+      await loadClosures();
+    });
+  } catch (e) {
+    console.error('Masters yüklenemedi', e);
+  }
+}
+
+// initialize masters then appointments
+loadMasters().then(() => loadAppointments());

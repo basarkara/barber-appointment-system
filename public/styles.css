@@ -236,6 +236,42 @@ button:hover {
   margin-bottom: 6px;
 }
 
+.closure-card {
+  padding: 24px;
+}
+
+.closure-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.closure-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+.closure-remove-button {
+  min-width: 110px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: #ef4444;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.closure-remove-button:hover {
+  background: #dc2626;
+}
+
 .event-detail {
   color: #475569;
 }

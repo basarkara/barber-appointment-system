@@ -11,6 +11,10 @@
     <header>
       <h1>Yönetici Paneli</h1>
       <p>Gün seçin, seçilen günün randevu çizelgesini aşağıda görün.</p>
+      <label style="margin-top:8px; display:block;">
+        Usta:
+        <select id="adminMasterSelect"><option value="">Bir usta seçin</option></select>
+      </label>
     </header>
 
     <main>
@@ -44,15 +48,37 @@
           <div id="serviceSettings">
             <!-- Service-specific buffer inputs will be injected here -->
           </div>
-          <label>
-            Usta sayısı
-            <input type="number" id="masterCount" name="masterCount" min="1" step="1" required />
-          </label>
           <div class="settings-actions">
             <button type="submit">Kaydet</button>
           </div>
           <div id="settingsMessage" class="message"></div>
         </form>
+      </section>
+
+      <section class="card closure-card">
+        <div class="settings-header">
+          <div>
+            <h2>Randevu Kapatma</h2>
+            <p>Seçilen ustanın randevu alımını kapatmak için zaman aralığı belirtin.</p>
+          </div>
+        </div>
+
+        <form id="closureForm">
+          <label>
+            Başlangıç
+            <input type="datetime-local" id="closureStart" required />
+          </label>
+          <label>
+            Bitiş
+            <input type="datetime-local" id="closureEnd" required />
+          </label>
+          <div class="settings-actions">
+            <button type="submit">Kapatma Ekle</button>
+          </div>
+          <div id="closureMessage" class="message"></div>
+        </form>
+
+        <div id="closureList" class="closure-list"></div>
       </section>
 
       <section class="card timeline-card">

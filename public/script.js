@@ -3,6 +3,7 @@ const messageBox = document.getElementById('message');
 const dateInput = document.getElementById('appointmentDate');
 const timeSelect = document.getElementById('appointmentTime');
 const slotInfo = document.getElementById('slotInfo');
+const masterSelect = document.getElementById('masterSelect');
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 18;
@@ -49,7 +50,7 @@ function buildBlockedIntervals(appointments) {
   });
 }
 
-function makeSlotList(date, blockedIntervals, masterCount) {
+function makeSlotList(date, blockedIntervals) {
   const slots = [];
   const dayStart = new Date(`${getIsoDateString(date)}T${String(BUSINESS_START_HOUR).padStart(2, '0')}:00:00`);
   const dayEnd = new Date(`${getIsoDateString(date)}T${String(BUSINESS_END_HOUR).padStart(2, '0')}:00:00`);
@@ -57,7 +58,7 @@ function makeSlotList(date, blockedIntervals, masterCount) {
 
   for (let current = new Date(dayStart); current < dayEnd; current = addMinutes(current, TIME_STEP_MINUTES)) {
     const overlapCount = blockedIntervals.filter(interval => current >= interval.start && current < interval.end).length;
-    const disabled = current < now || overlapCount >= masterCount;
+    const disabled = current < now || overlapCount > 0;
     slots.push({ time: formatOptionLabel(current), value: localDateTimeString(current), disabled });
   }
 
@@ -69,12 +70,23 @@ async function fetchAvailability(date) {
   timeSelect.innerHTML = '<option value="">Yükleniyor...</option>';
 
   try {
-    const response = await fetch(`/api/availability?date=${encodeURIComponent(date)}`);
+    const masterId = masterSelect ? masterSelect.value : null;
+    if (!masterId) {
+      slotInfo.textContent = 'Lütfen bir usta seçin.';
+      timeSelect.innerHTML = '<option value="">Lütfen usta seçin</option>';
+      return;
+    }
+
+    const response = await fetch(`/api/availability?date=${encodeURIComponent(date)}&masterId=${encodeURIComponent(masterId)}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Uygunluk bilgisi alınamadı.');
 
-    const blockedIntervals = buildBlockedIntervals(result.appointments);
-    const slots = makeSlotList(new Date(`${date}T00:00:00`), blockedIntervals, result.masterCount);
+    // build blocked intervals from appointments and closures
+    const appointmentBlocked = buildBlockedIntervals(result.appointments);
+    const closureIntervals = (result.closures || []).map(c => ({ start: new Date(c.start), end: new Date(c.end) }));
+    const blockedIntervals = appointmentBlocked.concat(closureIntervals);
+
+    const slots = makeSlotList(new Date(`${date}T00:00:00`), blockedIntervals);
 
     const options = slots.map(slot => `
       <option value="${slot.value}" ${slot.disabled ? 'disabled' : ''}>
@@ -89,6 +101,21 @@ async function fetchAvailability(date) {
   } catch (error) {
     slotInfo.textContent = error.message;
     timeSelect.innerHTML = '<option value="">Saat bilgisi yüklenemedi</option>';
+  }
+}
+
+async function loadMasters() {
+  if (!masterSelect) return;
+  try {
+    const res = await fetch('/api/masters');
+    const masters = await res.json();
+    masterSelect.innerHTML = `<option value="">Lütfen usta seçin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+    // when master changes, reload availability
+    masterSelect.addEventListener('change', () => {
+      if (dateInput.value) fetchAvailability(dateInput.value);
+    });
+  } catch (e) {
+    console.error('Masters yüklenemedi', e);
   }
 }
 
@@ -111,6 +138,7 @@ form.addEventListener('submit', async (event) => {
   const formData = new FormData(form);
   const dateValue = formData.get('date');
   const timeValue = formData.get('time');
+  const masterId = formData.get('masterId');
   if (!dateValue || !timeValue) {
     messageBox.textContent = 'Lütfen tarih ve saat seçin.';
     messageBox.classList.add('error');
@@ -118,6 +146,7 @@ form.addEventListener('submit', async (event) => {
   }
 
   const payload = {
+    masterId,
     firstName: formData.get('firstName').trim(),
     lastName: formData.get('lastName').trim(),
     time: timeValue,
@@ -144,4 +173,5 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
-setDefaultDate();
+// initialize masters then date
+loadMasters().then(() => setDefaultDate());
