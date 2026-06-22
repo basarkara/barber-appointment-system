@@ -41,6 +41,17 @@ npm start
 
 > Not: Prod/demo için sabit kullanıcı bilgileri yerine ortam değişkenleri kullanılmalı. Aşağıdaki `.env.example` dosyasına göz atın.
 
+## WhatsApp Bildirimi
+
+Bu projeye randevu oluşturulduğunda berber ustasına WhatsApp mesajı göndermek için Twilio kullanılabilir. Aşağıdaki ortam değişkenlerini ayarlayın:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `WHATSAPP_FROM` (Twilio’nun sağladığı WhatsApp numarası, örn. `whatsapp:+14155238886` değil, sadece `+14155238886`)
+- `WHATSAPP_TO` (Mesaj gönderilecek numara, örn. `+90XXXXXXXXXX`)
+
+Eğer bu değişkenler ayarlı değilse, proje normal şekilde çalışır ancak WhatsApp bildirimi gönderilmez.
+
 ## Hızlı Demo (başkalarıyla paylaşmak için)
 
 - Localtunnel (kolay):

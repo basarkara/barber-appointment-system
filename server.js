@@ -1,17 +1,54 @@
 const path = require('path');
+require('dotenv').config();
 const express = require('express');
 const basicAuth = require('express-basic-auth');
+const TelegramBot = require('node-telegram-bot-api');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || '1234';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const telegramBot = TELEGRAM_BOT_TOKEN ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false }) : null;
+const isTelegramEnabled = telegramBot && TELEGRAM_CHAT_ID;
+
+if (!isTelegramEnabled) {
+  console.log('Telegram bildirimi devre dışı. Lütfen TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID ortam değişkenlerini ayarlayın.');
+}
+
 const adminAuth = basicAuth({
   users: { [ADMIN_USER]: ADMIN_PASS },
   challenge: true,
   realm: 'Berber Randevu Sistemi'
 });
+
+function formatAppointmentTimeForMessage(time) {
+  const date = new Date(time);
+  return date.toLocaleString('tr-TR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
+async function sendTelegramNotification(appointment) {
+  if (!isTelegramEnabled) return;
+
+  const appointmentTime = formatAppointmentTimeForMessage(appointment.time);
+  const message = `📅 Berber Randevu Oluşturuldu\n\n👤 Müşteri: ${appointment.firstName} ${appointment.lastName}\n⏰ Saat: ${appointmentTime}\n✂️ İşlem: ${appointment.service}`;
+
+  try {
+    await telegramBot.sendMessage(TELEGRAM_CHAT_ID, message);
+    console.log('Telegram bildirimi gönderildi:', appointmentTime);
+  } catch (error) {
+    console.error('Telegram gönderimi sırasında hata oluştu:', error.message || error);
+  }
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -37,6 +74,7 @@ app.post('/api/appointments', async (req, res) => {
 
     const appointment = await db.createAppointment({ firstName, lastName, time, service });
     res.json(appointment);
+    sendTelegramNotification(appointment);
   } catch (error) {
     res.status(500).json({ error: 'Randevu kaydedilemedi.' });
   }
