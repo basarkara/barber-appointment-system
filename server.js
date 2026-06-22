@@ -42,18 +42,18 @@ function formatAppointmentTimeForMessage(time) {
   });
 }
 
-async function sendTelegramNotification(appointment) {
+async function sendTelegramNotification(appointment, masterName) {
   if (!isTelegramEnabled) {
     console.log('Telegram bildirimi devre dışı, bildirim gönderilmeyecek.');
     return;
   }
 
   const appointmentTime = formatAppointmentTimeForMessage(appointment.time);
-  const message = `📅 Berber Randevu Oluşturuldu\n\n👤 Müşteri: ${appointment.firstName} ${appointment.lastName}\n⏰ Saat: ${appointmentTime}\n✂️ İşlem: ${appointment.service}`;
+  const message = `📅 Berber Randevu Oluşturuldu\n\n👤 Müşteri: ${appointment.firstName} ${appointment.lastName}\n✂️ Usta: ${masterName || 'Bilinmiyor'}\n⏰ Saat: ${appointmentTime}\n✂️ İşlem: ${appointment.service}`;
 
   try {
     await telegramBot.sendMessage(TELEGRAM_CHAT_ID, message);
-    console.log('Telegram bildirimi gönderildi:', appointmentTime);
+    console.log('Telegram bildirimi gönderildi:', appointmentTime, masterName);
   } catch (error) {
     console.error('Telegram gönderimi sırasında hata oluştu:', error.message || error);
   }
@@ -88,8 +88,9 @@ app.post('/api/appointments', async (req, res) => {
     }
 
     const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service });
+    const master = await db.getMasterById(mId);
     res.json(appointment);
-    sendTelegramNotification(appointment);
+    await sendTelegramNotification(appointment, master ? master.name : 'Bilinmiyor');
   } catch (error) {
     res.status(500).json({ error: 'Randevu kaydedilemedi.' });
   }

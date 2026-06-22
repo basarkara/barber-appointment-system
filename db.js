@@ -141,6 +141,15 @@ module.exports = {
     });
   },
 
+  async getMasterById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(`SELECT id, name FROM masters WHERE id = ?`, [id], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  },
+
   createAppointment({ masterId, firstName, lastName, time, service }) {
     return new Promise((resolve, reject) => {
       const createdAt = new Date().toISOString();
