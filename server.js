@@ -14,6 +14,12 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const telegramBot = TELEGRAM_BOT_TOKEN ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false }) : null;
 const isTelegramEnabled = telegramBot && TELEGRAM_CHAT_ID;
 
+console.log('Telegram config:', {
+  tokenSet: Boolean(TELEGRAM_BOT_TOKEN),
+  chatIdSet: Boolean(TELEGRAM_CHAT_ID),
+  isTelegramEnabled
+});
+
 if (!isTelegramEnabled) {
   console.log('Telegram bildirimi devre dışı. Lütfen TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID ortam değişkenlerini ayarlayın.');
 }
@@ -37,7 +43,10 @@ function formatAppointmentTimeForMessage(time) {
 }
 
 async function sendTelegramNotification(appointment) {
-  if (!isTelegramEnabled) return;
+  if (!isTelegramEnabled) {
+    console.log('Telegram bildirimi devre dışı, bildirim gönderilmeyecek.');
+    return;
+  }
 
   const appointmentTime = formatAppointmentTimeForMessage(appointment.time);
   const message = `📅 Berber Randevu Oluşturuldu\n\n👤 Müşteri: ${appointment.firstName} ${appointment.lastName}\n⏰ Saat: ${appointmentTime}\n✂️ İşlem: ${appointment.service}`;
@@ -54,6 +63,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.post('/api/appointments', async (req, res) => {
+  console.log('POST /api/appointments received', { body: req.body });
+
   const { firstName, lastName, time, service } = req.body;
   if (!firstName || !lastName || !time || !service) {
     return res.status(400).json({ error: 'Lütfen tüm alanları doldurun.' });
