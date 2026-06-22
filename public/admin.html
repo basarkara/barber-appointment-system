@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin - Berber Randevu</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Yönetici Paneli</h1>
+      <p>Gün seçin, seçilen günün randevu çizelgesini aşağıda görün.</p>
+    </header>
+
+    <main>
+      <section class="card calendar-card">
+        <div class="calendar-header">
+          <div>
+            <h2>Takvim</h2>
+            <p>Bir günü seçerek, o günün programını görebilirsiniz.</p>
+          </div>
+          <div class="month-nav">
+            <button id="prevMonth" type="button" aria-label="Önceki ay">◀</button>
+            <div id="calendarMonth" class="month-label"></div>
+            <button id="nextMonth" type="button" aria-label="Sonraki ay">▶</button>
+          </div>
+        </div>
+
+        <div class="calendar-grid" id="calendarGrid"></div>
+
+        <div class="selected-day" id="selectedDaySummary"></div>
+      </section>
+
+      <section class="card settings-card">
+        <div class="settings-header">
+          <div>
+            <h2>Ayarlar</h2>
+            <p>Randevu zamanları arasındaki minimum süreyi belirtin.</p>
+          </div>
+        </div>
+
+        <form id="settingsForm">
+          <div id="serviceSettings">
+            <!-- Service-specific buffer inputs will be injected here -->
+          </div>
+          <label>
+            Usta sayısı
+            <input type="number" id="masterCount" name="masterCount" min="1" step="1" required />
+          </label>
+          <div class="settings-actions">
+            <button type="submit">Kaydet</button>
+          </div>
+          <div id="settingsMessage" class="message"></div>
+        </form>
+      </section>
+
+      <section class="card timeline-card">
+        <h2 id="timelineTitle">Bugünün Zaman Çizelgesi</h2>
+        <div id="timeline" class="timeline">Yükleniyor...</div>
+      </section>
+    </main>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

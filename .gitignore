@@ -1,0 +1,11 @@
+node_modules/
+appointments.db
+.env
+payload.json
+appt1.json
+appt2.json
+appt3.json
+.vscode/
+npm-debug.log
+dist/node_modules/
+appointments.db

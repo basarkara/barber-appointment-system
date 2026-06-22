@@ -1,0 +1,14 @@
+{
+  "name": "barber-appointment-system",
+  "version": "1.0.0",
+  "description": "Basit berber randevu sistemi ve admin paneli",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-basic-auth": "^1.2.0",
+    "sqlite3": "^5.1.6"
+  }
+}
