@@ -40,6 +40,7 @@ db.serialize(() => {
       lastName TEXT NOT NULL,
       time TEXT NOT NULL,
       service TEXT NOT NULL,
+      note TEXT,
       createdAt TEXT NOT NULL,
       FOREIGN KEY(masterId) REFERENCES masters(id)
     )
@@ -64,12 +65,14 @@ db.serialize(() => {
       masterId INTEGER,
       service TEXT NOT NULL,
       bufferMinutes INTEGER NOT NULL,
+      price REAL NOT NULL DEFAULT 0,
       PRIMARY KEY(masterId, service),
       FOREIGN KEY(masterId) REFERENCES masters(id)
     )
   `);
 
   ensureColumn('service_settings', 'masterId', 'masterId INTEGER NOT NULL DEFAULT 1');
+  ensureColumn('service_settings', 'price', 'price REAL NOT NULL DEFAULT 0');
 
   db.run(`
     CREATE TABLE IF NOT EXISTS closures (
@@ -150,16 +153,16 @@ module.exports = {
     });
   },
 
-  createAppointment({ masterId, firstName, lastName, time, service }) {
+  createAppointment({ masterId, firstName, lastName, time, service, note }) {
     return new Promise((resolve, reject) => {
       const createdAt = new Date().toISOString();
       const normalizedTime = time;
       const stmt = db.prepare(`
-        INSERT INTO appointments (masterId, firstName, lastName, time, service, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO appointments (masterId, firstName, lastName, time, service, note, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
 
-      stmt.run(masterId, firstName, lastName, normalizedTime, service, createdAt, function (err) {
+      stmt.run(masterId, firstName, lastName, normalizedTime, service, note || null, createdAt, function (err) {
         stmt.finalize();
         if (err) return reject(err);
         resolve({
@@ -169,8 +172,41 @@ module.exports = {
           lastName,
           time: normalizedTime,
           service,
+          note: note || '',
           createdAt
         });
+      });
+    });
+  },
+
+  getAppointmentById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(`SELECT id, masterId, firstName, lastName, time, service, note, createdAt FROM appointments WHERE id = ?`, [id], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  },
+
+  updateAppointment(id, { masterId, firstName, lastName, time, service, note }) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `UPDATE appointments SET masterId = ?, firstName = ?, lastName = ?, time = ?, service = ?, note = ? WHERE id = ?`,
+        [masterId, firstName, lastName, time, service, note || null, id],
+        function (err) {
+          if (err) return reject(err);
+          if (!this.changes) return resolve(null);
+          resolve({ id, masterId, firstName, lastName, time, service, note: note || '' });
+        }
+      );
+    });
+  },
+
+  deleteAppointment(id) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM appointments WHERE id = ?`, [id], function (err) {
+        if (err) return reject(err);
+        resolve({ deleted: this.changes });
       });
     });
   },
@@ -179,8 +215,8 @@ module.exports = {
     return new Promise((resolve, reject) => {
       const params = masterId ? [masterId] : [];
       const q = masterId ?
-        `SELECT id, masterId, firstName, lastName, time, service, createdAt FROM appointments WHERE masterId = ? ORDER BY datetime(time) ASC` :
-        `SELECT id, masterId, firstName, lastName, time, service, createdAt FROM appointments ORDER BY datetime(time) ASC`;
+        `SELECT id, masterId, firstName, lastName, time, service, note, createdAt FROM appointments WHERE masterId = ? ORDER BY datetime(time) ASC` :
+        `SELECT id, masterId, firstName, lastName, time, service, note, createdAt FROM appointments ORDER BY datetime(time) ASC`;
       db.all(q, params, (err, rows) => {
         if (err) return reject(err);
         resolve(rows);
@@ -192,8 +228,8 @@ module.exports = {
     return new Promise((resolve, reject) => {
       const params = masterId ? [date, masterId] : [date];
       const q = masterId ?
-        `SELECT id, masterId, firstName, lastName, time, service, createdAt FROM appointments WHERE date(time) = date(?) AND masterId = ? ORDER BY datetime(time) ASC` :
-        `SELECT id, masterId, firstName, lastName, time, service, createdAt FROM appointments WHERE date(time) = date(?) ORDER BY datetime(time) ASC`;
+        `SELECT id, masterId, firstName, lastName, time, service, note, createdAt FROM appointments WHERE date(time) = date(?) AND masterId = ? ORDER BY datetime(time) ASC` :
+        `SELECT id, masterId, firstName, lastName, time, service, note, createdAt FROM appointments WHERE date(time) = date(?) ORDER BY datetime(time) ASC`;
       db.all(q, params, (err, rows) => {
         if (err) return reject(err);
         resolve(rows);
@@ -216,6 +252,39 @@ module.exports = {
 
   getServiceBuffer(masterId, service) {
     return _getServiceBuffer(masterId, service);
+  },
+
+  async getServiceSettings(masterId) {
+    const services = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
+    const rows = await new Promise((resolve, reject) => {
+      db.all(`SELECT service, bufferMinutes, price FROM service_settings WHERE masterId = ?`, [masterId], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows);
+      });
+    });
+
+    const settings = services.map(service => {
+      const row = rows.find(r => r.service === service);
+      return {
+        service,
+        bufferMinutes: row ? row.bufferMinutes : DEFAULT_BUFFER_MINUTES,
+        price: row ? row.price : 0
+      };
+    });
+    return settings;
+  },
+
+  setServiceSetting(masterId, service, bufferMinutes, price) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT OR REPLACE INTO service_settings (masterId, service, bufferMinutes, price) VALUES (?, ?, ?, ?)`,
+        [masterId, service, bufferMinutes, price],
+        function (err) {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
   },
 
   setServiceBuffer(masterId, service, minutes) {
@@ -249,13 +318,18 @@ module.exports = {
     });
   },
 
-  hasAppointmentConflict(masterId, requestedTime, bufferMinutes) {
+  hasAppointmentConflict(masterId, requestedTime, bufferMinutes, excludeAppointmentId = null) {
     return new Promise((resolve, reject) => {
       const requested = new Date(requestedTime);
       const requestedStart = new Date(requested.getTime() - bufferMinutes * 60 * 1000);
       const requestedEnd = new Date(requested.getTime() + bufferMinutes * 60 * 1000);
 
-      db.all(`SELECT time, service FROM appointments WHERE masterId = ?`, [masterId], async (err, rows) => {
+      const query = excludeAppointmentId ?
+        `SELECT id, time, service FROM appointments WHERE masterId = ? AND id <> ?` :
+        `SELECT id, time, service FROM appointments WHERE masterId = ?`;
+      const params = excludeAppointmentId ? [masterId, excludeAppointmentId] : [masterId];
+
+      db.all(query, params, async (err, rows) => {
         if (err) return reject(err);
         try {
           let overlapCount = 0;
@@ -269,7 +343,6 @@ module.exports = {
               overlapCount++;
             }
           }
-          // if any overlap, it's a conflict (single-master availability)
           resolve(overlapCount > 0);
         } catch (e) {
           reject(e);

@@ -14,6 +14,16 @@ const closureStartInput = document.getElementById('closureStart');
 const closureEndInput = document.getElementById('closureEnd');
 const closureMessage = document.getElementById('closureMessage');
 const closureList = document.getElementById('closureList');
+const appointmentForm = document.getElementById('appointmentForm');
+const appointmentTimeInput = document.getElementById('appointmentTime');
+const appointmentFirstNameInput = document.getElementById('appointmentFirstName');
+const appointmentLastNameInput = document.getElementById('appointmentLastName');
+const appointmentServiceSelect = document.getElementById('appointmentService');
+const appointmentNoteInput = document.getElementById('appointmentNote');
+const appointmentSubmitBtn = document.getElementById('appointmentSubmitBtn');
+const appointmentCancelEditBtn = document.getElementById('appointmentCancelEditBtn');
+const appointmentMessage = document.getElementById('appointmentMessage');
+const appointmentList = document.getElementById('appointmentList');
 
 let appointments = [];
 let displayedMonth = new Date();
@@ -21,9 +31,18 @@ displayedMonth.setDate(1);
 let selectedDate = new Date();
 let currentBufferMinutes = 30;
 let currentClosures = [];
+let editingAppointmentId = null;
+let controlsInitialized = false;
 const SERVICES = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
 
 const WEEKDAYS = ['Pts', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+function populateAppointmentServiceOptions() {
+  if (!appointmentServiceSelect) return;
+  appointmentServiceSelect.innerHTML = SERVICES
+    .map(service => `<option value="${service}">${service}</option>`)
+    .join('');
+}
 
 function formatDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -106,6 +125,7 @@ function renderTimeline() {
 
   if (!dayAppointments.length) {
     timeline.innerHTML = '<p class="empty-state">Bu gün için kayıtlı randevu yok.</p>';
+    appointmentList.innerHTML = '<p class="empty-state">Bu gün için düzenlenebilir randevu yok.</p>';
     return;
   }
 
@@ -114,15 +134,146 @@ function renderTimeline() {
       <div class="time-block">${formatTime(item.timeObj)}</div>
       <div class="event-card">
         <div class="event-title">${item.firstName} ${item.lastName}</div>
-        <div class="event-detail">${item.service}</div>
+        <div class="event-detail">${item.service}${item.note ? ` • Not: ${item.note}` : ''}</div>
       </div>
     </div>
   `).join('');
 
   timeline.innerHTML = items;
+  renderAppointmentList();
+}
+
+function resetAppointmentForm() {
+  editingAppointmentId = null;
+  appointmentTimeInput.value = '';
+  appointmentFirstNameInput.value = '';
+  appointmentLastNameInput.value = '';
+  appointmentServiceSelect.value = SERVICES[0];
+  appointmentNoteInput.value = '';
+  appointmentSubmitBtn.textContent = 'Randevu Ekle';
+  appointmentCancelEditBtn.hidden = true;
+  appointmentMessage.textContent = '';
+  appointmentMessage.className = 'message';
+}
+
+function renderAppointmentList() {
+  const dayAppointments = getAppointmentsForDate(selectedDate);
+  if (!dayAppointments.length) {
+    appointmentList.innerHTML = '<p class="empty-state">Bu gün için düzenlenebilir randevu yok.</p>';
+    return;
+  }
+
+  appointmentList.innerHTML = dayAppointments.map(item => `
+    <div class="appointment-item">
+      <div>
+        <div class="event-title">${formatTime(item.timeObj)} • ${item.firstName} ${item.lastName}</div>
+        <div class="event-detail">${item.service}${item.note ? ` • Not: ${item.note}` : ''}</div>
+      </div>
+      <div class="appointment-actions">
+        <button type="button" class="appointment-edit-button" data-id="${item.id}">Düzenle</button>
+        <button type="button" class="appointment-delete-button" data-id="${item.id}">Sil</button>
+      </div>
+    </div>
+  `).join('');
+
+  appointmentList.querySelectorAll('.appointment-edit-button').forEach(button => {
+    button.addEventListener('click', () => editAppointment(button.dataset.id));
+  });
+
+  appointmentList.querySelectorAll('.appointment-delete-button').forEach(button => {
+    button.addEventListener('click', () => deleteAppointmentById(button.dataset.id));
+  });
+}
+
+function editAppointment(appointmentId) {
+  const appointment = appointments.find(item => String(item.id) === String(appointmentId));
+  if (!appointment) return;
+
+  editingAppointmentId = appointment.id;
+  appointmentTimeInput.value = appointment.timeObj.toISOString().slice(0, 16);
+  appointmentFirstNameInput.value = appointment.firstName;
+  appointmentLastNameInput.value = appointment.lastName;
+  appointmentServiceSelect.value = appointment.service;
+  appointmentNoteInput.value = appointment.note || '';
+  appointmentSubmitBtn.textContent = 'Randevuyu Güncelle';
+  appointmentCancelEditBtn.hidden = false;
+  appointmentMessage.textContent = 'Randevu düzenleme modunda.';
+  appointmentMessage.className = 'message';
+}
+
+async function deleteAppointmentById(appointmentId) {
+  try {
+    const response = await fetch(`/api/appointments/${encodeURIComponent(appointmentId)}`, {
+      method: 'DELETE'
+    });
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Randevu silinemedi.');
+    appointmentMessage.textContent = 'Randevu silindi.';
+    appointmentMessage.classList.add('success');
+    resetAppointmentForm();
+    await loadAppointments();
+  } catch (error) {
+    appointmentMessage.textContent = error.message;
+    appointmentMessage.classList.add('error');
+  }
+}
+
+async function saveAppointment(event) {
+  event.preventDefault();
+  appointmentMessage.className = 'message';
+
+  const masterId = adminMasterSelect ? adminMasterSelect.value : null;
+  if (!masterId) {
+    appointmentMessage.textContent = 'Lütfen önce bir usta seçin.';
+    appointmentMessage.classList.add('error');
+    return;
+  }
+
+  const time = appointmentTimeInput.value;
+  const firstName = appointmentFirstNameInput.value.trim();
+  const lastName = appointmentLastNameInput.value.trim();
+  const service = appointmentServiceSelect.value;
+  const note = appointmentNoteInput.value.trim();
+
+  if (!time || !firstName || !lastName || !service) {
+    appointmentMessage.textContent = 'Lütfen tüm alanları doldurun.';
+    appointmentMessage.classList.add('error');
+    return;
+  }
+
+  if (note.length > 150) {
+    appointmentMessage.textContent = 'Not 150 karakteri geçemez.';
+    appointmentMessage.classList.add('error');
+    return;
+  }
+
+  const requestBody = { masterId, firstName, lastName, time, service, note };
+  const method = editingAppointmentId ? 'PATCH' : 'POST';
+  const url = editingAppointmentId ? `/api/appointments/${editingAppointmentId}` : '/api/appointments';
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    });
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Randevu kaydedilemedi.');
+
+    appointmentMessage.textContent = editingAppointmentId ? 'Randevu güncellendi.' : 'Randevu eklendi.';
+    appointmentMessage.classList.add('success');
+    resetAppointmentForm();
+    await loadAppointments();
+  } catch (error) {
+    appointmentMessage.textContent = error.message;
+    appointmentMessage.classList.add('error');
+  }
 }
 
 function initControls() {
+  if (controlsInitialized) return;
+  controlsInitialized = true;
+
   prevMonthBtn.addEventListener('click', () => {
     displayedMonth.setMonth(displayedMonth.getMonth() - 1);
     renderCalendar();
@@ -136,6 +287,16 @@ function initControls() {
   settingsForm.addEventListener('submit', saveSettings);
   if (closureForm) {
     closureForm.addEventListener('submit', saveClosure);
+  }
+
+  if (appointmentForm) {
+    appointmentForm.addEventListener('submit', saveAppointment);
+  }
+
+  if (appointmentCancelEditBtn) {
+    appointmentCancelEditBtn.addEventListener('click', () => {
+      resetAppointmentForm();
+    });
   }
 }
 
@@ -165,12 +326,24 @@ async function loadSettings() {
 
     serviceSettingsContainer.innerHTML = '';
     const buffers = settings.serviceBuffers || {};
+    const prices = settings.servicePrices || {};
     for (const s of SERVICES) {
-      const v = buffers[s] ?? currentBufferMinutes;
-      const row = document.createElement('label');
-      row.innerHTML = `${s}<input type="number" name="service_${s}" data-service="${s}" min="0" step="1" value="${v}" required />`;
+      const bufferValue = buffers[s] ?? currentBufferMinutes;
+      const priceValue = prices[s] ?? 0;
+      const row = document.createElement('div');
+      row.className = 'service-setting-row';
+      row.innerHTML = `
+        <label>
+          ${s}
+          <div class="service-setting-fields">
+            <input type="number" name="service_${s}_buffer" data-service="${s}" min="0" step="1" value="${bufferValue}" required placeholder="Aralık (dakika)" />
+            <input type="number" name="service_${s}_price" data-service-price="${s}" min="0" step="0.01" value="${priceValue}" required placeholder="Fiyat (₺)" />
+          </div>
+        </label>
+      `;
       serviceSettingsContainer.appendChild(row);
     }
+    populateAppointmentServiceOptions();
     settingsMessage.textContent = '';
     settingsMessage.className = 'message';
   } catch (error) {
@@ -185,8 +358,11 @@ async function saveSettings(event) {
 
   // collect service buffers
   const serviceBuffers = {};
-  const inputs = serviceSettingsContainer.querySelectorAll('input[data-service]');
-  for (const inp of inputs) {
+  const servicePrices = {};
+  const bufferInputs = serviceSettingsContainer.querySelectorAll('input[data-service]');
+  const priceInputs = serviceSettingsContainer.querySelectorAll('input[data-service-price]');
+
+  for (const inp of bufferInputs) {
     const sv = parseInt(inp.value, 10);
     const svc = inp.getAttribute('data-service');
     if (Number.isNaN(sv) || sv < 0) {
@@ -195,6 +371,17 @@ async function saveSettings(event) {
       return;
     }
     serviceBuffers[svc] = sv;
+  }
+
+  for (const inp of priceInputs) {
+    const pv = parseFloat(inp.value);
+    const svc = inp.getAttribute('data-service-price');
+    if (Number.isNaN(pv) || pv < 0) {
+      settingsMessage.textContent = `Geçersiz fiyat değeri: ${svc}`;
+      settingsMessage.classList.add('error');
+      return;
+    }
+    servicePrices[svc] = pv;
   }
 
   try {
@@ -208,7 +395,7 @@ async function saveSettings(event) {
     const response = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serviceBuffers, masterId })
+      body: JSON.stringify({ serviceBuffers, servicePrices, masterId })
     });
 
     const result = await parseJsonSafely(response);
@@ -351,7 +538,6 @@ async function loadAppointments() {
       timeObj: new Date(app.time)
     }));
 
-    initControls();
     await loadSettings();
     renderCalendar();
     renderTimeline();
@@ -369,8 +555,8 @@ async function loadMasters() {
     const masters = await res.json();
     adminMasterSelect.innerHTML = `<option value="">Bir usta seçin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
     adminMasterSelect.addEventListener('change', async () => {
+      resetAppointmentForm();
       await loadAppointments();
-      await loadSettings();
       renderCalendar();
       renderTimeline();
       await loadClosures();
@@ -381,4 +567,8 @@ async function loadMasters() {
 }
 
 // initialize masters then appointments
-loadMasters().then(() => loadAppointments());
+loadMasters().then(async () => {
+  initControls();
+  populateAppointmentServiceOptions();
+  await loadAppointments();
+});

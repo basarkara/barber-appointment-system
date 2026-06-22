@@ -344,6 +344,84 @@ th {
   background: #1d4ed8;
 }
 
+.appointment-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.appointment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+.appointment-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.service-setting-row {
+  margin-bottom: 14px;
+}
+
+.service-setting-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+@media (max-width: 640px) {
+  .service-setting-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.appointment-edit-button,
+.appointment-delete-button,
+#appointmentCancelEditBtn {
+  min-width: 100px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.appointment-edit-button {
+  background: #2563eb;
+  color: white;
+}
+
+.appointment-edit-button:hover {
+  background: #1d4ed8;
+}
+
+.appointment-delete-button {
+  background: #ef4444;
+  color: white;
+}
+
+.appointment-delete-button:hover,
+#appointmentCancelEditBtn:hover {
+  background: #dc2626;
+}
+
+#appointmentCancelEditBtn {
+  background: #64748b;
+}
+
+#appointmentCancelEditBtn:hover {
+  background: #475569;
+}
+
 @media (min-width: 768px) {
   main {
     grid-template-columns: 1fr;

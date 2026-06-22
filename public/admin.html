@@ -81,6 +81,45 @@
         <div id="closureList" class="closure-list"></div>
       </section>
 
+      <section class="card appointment-card">
+        <div class="settings-header">
+          <div>
+            <h2>Randevu Yönetimi</h2>
+            <p>Seçilen ustanın günündeki randevuları manuel ekleyin, düzenleyin veya silin.</p>
+          </div>
+        </div>
+
+        <form id="appointmentForm">
+          <label>
+            Tarih ve Saat
+            <input type="datetime-local" id="appointmentTime" required />
+          </label>
+          <label>
+            Müşteri Adı
+            <input type="text" id="appointmentFirstName" required />
+          </label>
+          <label>
+            Müşteri Soyadı
+            <input type="text" id="appointmentLastName" required />
+          </label>
+          <label>
+            Hizmet
+            <select id="appointmentService" required></select>
+          </label>
+          <label>
+            Ustaya notunuz. (zorunlu değil)
+            <textarea id="appointmentNote" rows="3" maxlength="150" placeholder="Örn. Saçım uzun, boyama istiyorum..."></textarea>
+          </label>
+          <div class="settings-actions">
+            <button type="submit" id="appointmentSubmitBtn">Randevu Ekle</button>
+            <button type="button" id="appointmentCancelEditBtn" hidden>İptal</button>
+          </div>
+          <div id="appointmentMessage" class="message"></div>
+        </form>
+
+        <div id="appointmentList" class="appointment-list"></div>
+      </section>
+
       <section class="card timeline-card">
         <h2 id="timelineTitle">Bugünün Zaman Çizelgesi</h2>
         <div id="timeline" class="timeline">Yükleniyor...</div>

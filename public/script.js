@@ -4,6 +4,11 @@ const dateInput = document.getElementById('appointmentDate');
 const timeSelect = document.getElementById('appointmentTime');
 const slotInfo = document.getElementById('slotInfo');
 const masterSelect = document.getElementById('masterSelect');
+const serviceSelect = document.getElementById('serviceSelect');
+const servicePriceInfo = document.getElementById('servicePriceInfo');
+const appointmentNoteInput = document.getElementById('appointmentNote');
+
+let serviceOptions = [];
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 18;
@@ -110,8 +115,12 @@ async function loadMasters() {
     const res = await fetch('/api/masters');
     const masters = await res.json();
     masterSelect.innerHTML = `<option value="">Lütfen usta seçin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-    // when master changes, reload availability
+    // when master changes, reload availability and services
     masterSelect.addEventListener('change', () => {
+      const masterId = masterSelect.value;
+      if (masterId) {
+        loadServiceOptions(masterId);
+      }
       if (dateInput.value) fetchAvailability(dateInput.value);
     });
   } catch (e) {
@@ -122,6 +131,9 @@ async function loadMasters() {
 function setDefaultDate() {
   const today = new Date();
   dateInput.value = getIsoDateString(today);
+  if (masterSelect.value) {
+    loadServiceOptions(masterSelect.value);
+  }
   fetchAvailability(dateInput.value);
 }
 
@@ -130,6 +142,32 @@ dateInput.addEventListener('change', () => {
     fetchAvailability(dateInput.value);
   }
 });
+
+serviceSelect.addEventListener('change', () => {
+  const selected = serviceOptions.find(option => option.service === serviceSelect.value);
+  if (selected) {
+    servicePriceInfo.textContent = `Seçilen işlem fiyatı: ₺${selected.price.toFixed(2)}`;
+  } else {
+    servicePriceInfo.textContent = 'Seçilen işlem için fiyat burada gösterilecektir.';
+  }
+});
+
+async function loadServiceOptions(masterId) {
+  if (!serviceSelect) return;
+  try {
+    const response = await fetch(`/api/service-options?masterId=${encodeURIComponent(masterId)}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'İşlem seçenekleri yüklenemedi.');
+    serviceOptions = result.serviceSettings || [];
+    serviceSelect.innerHTML = `<option value="">Seçiniz</option>` + serviceOptions.map(opt => `
+      <option value="${opt.service}">${opt.service} (₺${Number(opt.price).toFixed(2)})</option>
+    `).join('');
+    servicePriceInfo.textContent = 'Seçilen işlem için fiyat burada gösterilecektir.';
+  } catch (error) {
+    serviceSelect.innerHTML = '<option value="">İşlem seçenekleri yüklenemedi</option>';
+    servicePriceInfo.textContent = error.message;
+  }
+}
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -150,7 +188,8 @@ form.addEventListener('submit', async (event) => {
     firstName: formData.get('firstName').trim(),
     lastName: formData.get('lastName').trim(),
     time: timeValue,
-    service: formData.get('service')
+    service: formData.get('service'),
+    note: (formData.get('note') || '').trim()
   };
 
   try {

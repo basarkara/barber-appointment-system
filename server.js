@@ -65,7 +65,7 @@ app.use(express.urlencoded({ extended: true }));
 app.post('/api/appointments', async (req, res) => {
   console.log('POST /api/appointments received', { body: req.body });
 
-  const { masterId, firstName, lastName, time, service } = req.body;
+  const { masterId, firstName, lastName, time, service, note } = req.body;
   const mId = parseInt(masterId, 10);
   if (Number.isNaN(mId)) {
     return res.status(400).json({ error: 'Lütfen usta seçin.' });
@@ -73,6 +73,10 @@ app.post('/api/appointments', async (req, res) => {
 
   if (!firstName || !lastName || !time || !service) {
     return res.status(400).json({ error: 'Lütfen tüm alanları doldurun.' });
+  }
+
+  if (note && note.length > 150) {
+    return res.status(400).json({ error: 'Not 150 karakteri geçemez.' });
   }
 
   const requestedTime = new Date(time);
@@ -87,12 +91,71 @@ app.post('/api/appointments', async (req, res) => {
       return res.status(409).json({ error: `Seçtiğiniz saat çakışma nedeniyle dolu.` });
     }
 
-    const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service });
+    const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service, note });
     const master = await db.getMasterById(mId);
     res.json(appointment);
     await sendTelegramNotification(appointment, master ? master.name : 'Bilinmiyor');
   } catch (error) {
     res.status(500).json({ error: 'Randevu kaydedilemedi.' });
+  }
+});
+
+app.patch('/api/appointments/:id', adminAuth, async (req, res) => {
+  const appointmentId = parseInt(req.params.id, 10);
+  const { masterId, firstName, lastName, time, service, note } = req.body;
+  if (Number.isNaN(appointmentId)) {
+    return res.status(400).json({ error: 'Geçersiz randevu kimliği.' });
+  }
+
+  const mId = masterId ? parseInt(masterId, 10) : null;
+  if (Number.isNaN(mId)) {
+    return res.status(400).json({ error: 'Lütfen usta seçin.' });
+  }
+
+  if (!firstName || !lastName || !time || !service) {
+    return res.status(400).json({ error: 'Lütfen tüm alanları doldurun.' });
+  }
+
+  if (note && note.length > 150) {
+    return res.status(400).json({ error: 'Not 150 karakteri geçemez.' });
+  }
+
+  const requestedTime = new Date(time);
+  if (Number.isNaN(requestedTime.getTime())) {
+    return res.status(400).json({ error: 'Geçersiz randevu zamanı.' });
+  }
+
+  try {
+    const bufferMinutes = await db.getServiceBuffer(mId, service);
+    const conflict = await db.hasAppointmentConflict(mId, requestedTime.toISOString(), bufferMinutes, appointmentId);
+    if (conflict) {
+      return res.status(409).json({ error: 'Seçtiğiniz saat çakışma nedeniyle dolu.' });
+    }
+
+    const appointment = await db.updateAppointment(appointmentId, { masterId: mId, firstName, lastName, time, service, note });
+    if (!appointment) {
+      return res.status(404).json({ error: 'Randevu bulunamadı.' });
+    }
+    res.json(appointment);
+  } catch (error) {
+    res.status(500).json({ error: 'Randevu güncellenemedi.' });
+  }
+});
+
+app.delete('/api/appointments/:id', adminAuth, async (req, res) => {
+  const appointmentId = parseInt(req.params.id, 10);
+  if (Number.isNaN(appointmentId)) {
+    return res.status(400).json({ error: 'Geçersiz randevu kimliği.' });
+  }
+
+  try {
+    const result = await db.deleteAppointment(appointmentId);
+    if (!result.deleted) {
+      return res.status(404).json({ error: 'Randevu bulunamadı.' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Randevu silinemedi.' });
   }
 });
 
@@ -103,6 +166,18 @@ app.get('/api/masters', async (req, res) => {
     res.json(masters);
   } catch (e) {
     res.status(500).json({ error: 'Ustalar yüklenemedi.' });
+  }
+});
+
+app.get('/api/service-options', async (req, res) => {
+  const masterId = req.query.masterId ? parseInt(req.query.masterId, 10) : null;
+  if (!masterId) return res.status(400).json({ error: 'Usta parametresi eksik.' });
+
+  try {
+    const serviceSettings = await db.getServiceSettings(masterId);
+    res.json({ serviceSettings });
+  } catch (error) {
+    res.status(500).json({ error: 'İşlem seçenekleri yüklenemedi.' });
   }
 });
 
@@ -196,19 +271,21 @@ app.get('/api/settings', adminAuth, async (req, res) => {
       return res.status(400).json({ error: 'Usta seçimi gerekli.' });
     }
 
-    const SERVICES = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
+    const serviceSettings = await db.getServiceSettings(masterId);
     const serviceBuffers = {};
-    for (const s of SERVICES) {
-      serviceBuffers[s] = await db.getServiceBuffer(masterId, s);
+    const servicePrices = {};
+    for (const item of serviceSettings) {
+      serviceBuffers[item.service] = item.bufferMinutes;
+      servicePrices[item.service] = item.price;
     }
-    res.json({ serviceBuffers, masterId });
+    res.json({ serviceBuffers, servicePrices, masterId });
   } catch (error) {
     res.status(500).json({ error: 'Ayarlar yüklenemedi.' });
   }
 });
 
 app.post('/api/settings', adminAuth, async (req, res) => {
-  const { serviceBuffers, masterId } = req.body;
+  const { serviceBuffers, servicePrices, masterId } = req.body;
   const selectedMasterId = masterId ? parseInt(masterId, 10) : null;
 
   if (!selectedMasterId) {
@@ -219,16 +296,24 @@ app.post('/api/settings', adminAuth, async (req, res) => {
     return res.status(400).json({ error: 'Lütfen hizmet başına süreleri gönderin.' });
   }
 
+  if (!servicePrices || typeof servicePrices !== 'object') {
+    return res.status(400).json({ error: 'Lütfen hizmet başına fiyatları gönderin.' });
+  }
+
   try {
     for (const [service, value] of Object.entries(serviceBuffers)) {
       const v = parseInt(value, 10);
       if (Number.isNaN(v) || v < 0) {
         return res.status(400).json({ error: `Geçersiz süre değeri for service ${service}.` });
       }
-      await db.setServiceBuffer(selectedMasterId, service, v);
+      const priceValue = parseFloat(servicePrices[service]);
+      if (Number.isNaN(priceValue) || priceValue < 0) {
+        return res.status(400).json({ error: `Geçersiz fiyat değeri for service ${service}.` });
+      }
+      await db.setServiceSetting(selectedMasterId, service, v, priceValue);
     }
 
-    res.json({ serviceBuffers, masterId: selectedMasterId });
+    res.json({ serviceBuffers, servicePrices, masterId: selectedMasterId });
   } catch (error) {
     res.status(500).json({ error: 'Ayar kaydedilemedi.' });
   }

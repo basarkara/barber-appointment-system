@@ -44,14 +44,14 @@
           <div id="slotInfo" class="slot-info">Müsait saatler otomatik olarak listelenecektir.</div>
           <label>
             İşlem Seçiniz
-            <select name="service" required>
+            <select id="serviceSelect" name="service" required>
               <option value="">Seçiniz</option>
-              <option value="Saç Kesimi">Saç Kesimi</option>
-              <option value="Sakal Tıraşı">Sakal Tıraşı</option>
-              <option value="Yıkama & Stil">Yıkama & Stil</option>
-              <option value="Saç Boyama">Saç Boyama</option>
-              <option value="Çocuk Saç Kesimi">Çocuk Saç Kesimi</option>
             </select>
+          </label>
+          <div id="servicePriceInfo" class="slot-info">Seçilen işlem için fiyat burada gösterilecektir.</div>
+          <label>
+            Ustaya notunuz. (zorunlu değil)
+            <textarea id="appointmentNote" name="note" maxlength="150" placeholder="Örn. Saçım uzun, boyama istiyorum..." rows="3"></textarea>
           </label>
           <button type="submit">Randevu Al</button>
         </form>
