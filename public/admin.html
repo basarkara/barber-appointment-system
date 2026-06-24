@@ -1,33 +1,63 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin - Berber Randevu</title>
+  <title>BerberTakip | Usta Paneli</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="page">
     <header>
-      <h1>Yönetici Paneli</h1>
-      <p>Gün seçin, seçilen günün randevu çizelgesini aşağıda görün.</p>
-      <label style="margin-top:8px; display:block;">
-        Usta:
-        <select id="adminMasterSelect"><option value="">Bir usta seçin</option></select>
+      <h1>Usta Paneli</h1>
+      <p id="panelMasterName">Panel yukleniyor...</p>
+      <label class="panel-filter">
+        Usta filtresi
+        <select id="adminMasterSelect"><option value="">Usta yukleniyor</option></select>
       </label>
     </header>
 
+    <nav class="admin-tabs" aria-label="Panel menusu">
+      <button type="button" class="admin-tab active" data-admin-tab="calendar">Takvim</button>
+      <button type="button" class="admin-tab" data-admin-tab="link">Randevu Linki</button>
+      <button type="button" class="admin-tab" data-admin-tab="settings">Ayarlar</button>
+      <button type="button" class="admin-tab" data-admin-tab="closures">Randevu Kapatma</button>
+      <button type="button" class="admin-tab" data-admin-tab="appointments">Randevu Yonetimi</button>
+    </nav>
+
     <main>
-      <section class="card calendar-card">
+      <section class="card link-card admin-screen" data-admin-screen="link" hidden>
+        <div class="settings-header">
+          <div>
+            <h2>Randevu Linki</h2>
+            <p>Size ozel randevu sayfasini olusturun ve musterilerinizle paylasin.</p>
+          </div>
+        </div>
+        <div class="link-tools">
+          <button type="button" id="generateAppointmentLinkBtn">Randevu Linki Olustur</button>
+          <input type="text" id="appointmentLinkInput" readonly placeholder="Linkiniz burada gorunecek" />
+          <button type="button" id="copyAppointmentLinkBtn" class="button-secondary">Kopyala</button>
+          <button type="button" id="generateQrCodeBtn" class="button-secondary">QR Kod Olustur</button>
+          <button type="button" id="printQrCodeBtn" class="button-secondary" disabled>YazdÄ±r</button>
+          <button type="button" id="logoutBtn" class="button-secondary">Cikis Yap</button>
+        </div>
+        <div id="qrCodePanel" class="qr-panel" hidden>
+          <img id="qrCodeImage" alt="Randevu linki QR kodu" />
+          <p id="qrCodeUrl"></p>
+        </div>
+        <div id="linkMessage" class="message"></div>
+      </section>
+
+      <section class="card calendar-card admin-screen" data-admin-screen="calendar">
         <div class="calendar-header">
           <div>
             <h2>Takvim</h2>
-            <p>Bir günü seçerek, o günün programını görebilirsiniz.</p>
+            <p>Bir gunu secerek, o gunun programini gorebilirsiniz.</p>
           </div>
           <div class="month-nav">
-            <button id="prevMonth" type="button" aria-label="Önceki ay">◀</button>
+            <button id="prevMonth" type="button" aria-label="Onceki ay">&lt;</button>
             <div id="calendarMonth" class="month-label"></div>
-            <button id="nextMonth" type="button" aria-label="Sonraki ay">▶</button>
+            <button id="nextMonth" type="button" aria-label="Sonraki ay">&gt;</button>
           </div>
         </div>
 
@@ -36,11 +66,11 @@
         <div class="selected-day" id="selectedDaySummary"></div>
       </section>
 
-      <section class="card settings-card">
+      <section class="card settings-card admin-screen" data-admin-screen="settings" hidden>
         <div class="settings-header">
           <div>
             <h2>Ayarlar</h2>
-            <p>Randevu zamanları arasındaki minimum süreyi belirtin.</p>
+            <p>Randevu zamanlari arasindaki minimum sureyi belirtin.</p>
           </div>
         </div>
 
@@ -55,21 +85,21 @@
         </form>
       </section>
 
-      <section class="card closure-card">
+      <section class="card closure-card admin-screen" data-admin-screen="closures" hidden>
         <div class="settings-header">
           <div>
             <h2>Randevu Kapatma</h2>
-            <p>Seçilen ustanın randevu alımını kapatmak için zaman aralığı belirtin.</p>
+            <p>Secilen ustanin randevu alimini kapatmak icin zaman araligi belirtin.</p>
           </div>
         </div>
 
         <form id="closureForm">
           <label>
-            Başlangıç
+            Baslangic
             <input type="datetime-local" id="closureStart" required />
           </label>
           <label>
-            Bitiş
+            Bitis
             <input type="datetime-local" id="closureEnd" required />
           </label>
           <div class="settings-actions">
@@ -81,11 +111,11 @@
         <div id="closureList" class="closure-list"></div>
       </section>
 
-      <section class="card appointment-card">
+      <section class="card appointment-card admin-screen" data-admin-screen="appointments" hidden>
         <div class="settings-header">
           <div>
-            <h2>Randevu Yönetimi</h2>
-            <p>Seçilen ustanın günündeki randevuları manuel ekleyin, düzenleyin veya silin.</p>
+            <h2>Randevu Yonetimi</h2>
+            <p>Secilen ustanin gunundeki randevulari manuel ekleyin, duzenleyin veya silin.</p>
           </div>
         </div>
 
@@ -95,11 +125,11 @@
             <input type="datetime-local" id="appointmentTime" required />
           </label>
           <label>
-            Müşteri Adı
+            Musteri Adi
             <input type="text" id="appointmentFirstName" required />
           </label>
           <label>
-            Müşteri Soyadı
+            Musteri Soyadi
             <input type="text" id="appointmentLastName" required />
           </label>
           <label>
@@ -107,12 +137,12 @@
             <select id="appointmentService" required></select>
           </label>
           <label>
-            Ustaya notunuz. (zorunlu değil)
-            <textarea id="appointmentNote" rows="3" maxlength="150" placeholder="Örn. Saçım uzun, boyama istiyorum..."></textarea>
+            Ustaya notunuz. (zorunlu degil)
+            <textarea id="appointmentNote" rows="3" maxlength="150" placeholder="Orn. Sacim uzun, boyama istiyorum..."></textarea>
           </label>
           <div class="settings-actions">
             <button type="submit" id="appointmentSubmitBtn">Randevu Ekle</button>
-            <button type="button" id="appointmentCancelEditBtn" hidden>İptal</button>
+            <button type="button" id="appointmentCancelEditBtn" hidden>Iptal</button>
           </div>
           <div id="appointmentMessage" class="message"></div>
         </form>
@@ -120,9 +150,9 @@
         <div id="appointmentList" class="appointment-list"></div>
       </section>
 
-      <section class="card timeline-card">
-        <h2 id="timelineTitle">Bugünün Zaman Çizelgesi</h2>
-        <div id="timeline" class="timeline">Yükleniyor...</div>
+      <section class="card timeline-card admin-screen" data-admin-screen="calendar">
+        <h2 id="timelineTitle">Bugunun Zaman Cizelgesi</h2>
+        <div id="timeline" class="timeline">Yukleniyor...</div>
       </section>
     </main>
   </div>
@@ -130,3 +160,4 @@
   <script src="admin.js"></script>
 </body>
 </html>
+

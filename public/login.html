@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BerberTakip | Usta Girişi</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page auth-page">
+    <header class="home-hero">
+      <div class="brand-mark" aria-hidden="true">BT</div>
+      <h1>Usta Girişi</h1>
+      <p>BerberTakip paneline kendi kullanıcı adınız ve şifrenizle giriş yapın.</p>
+    </header>
+
+    <main>
+      <section class="card auth-card">
+        <form id="loginForm">
+          <label>
+            Kullanıcı adı
+            <input type="text" name="username" autocomplete="username" required placeholder="Örn. ali" />
+          </label>
+          <label>
+            Şifre
+            <input type="password" name="password" autocomplete="current-password" required placeholder="Şifreniz" />
+          </label>
+          <button type="submit">Giriş Yap</button>
+        </form>
+        <div id="loginMessage" class="message"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="login.js"></script>
+</body>
+</html>

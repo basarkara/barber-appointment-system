@@ -1,7 +1,20 @@
+const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 
 const DEFAULT_BUFFER_MINUTES = 30;
+const DEFAULT_SHOP = {
+  name: 'A Berber',
+  username: 'aberber',
+  password: '1234',
+  slug: 'a-berber'
+};
 const DEFAULT_MASTERS = ['Ali Usta', 'Mehmet Usta', 'Ahmet Usta'];
+const DEFAULT_MASTER_CREDENTIALS = [
+  { name: 'Ali Usta', username: 'ali', slug: 'ali-usta' },
+  { name: 'Mehmet Usta', username: 'mehmet', slug: 'mehmet-usta' },
+  { name: 'Ahmet Usta', username: 'ahmet', slug: 'ahmet-usta' }
+];
+const DEFAULT_MASTER_PASSWORD = '1234';
 const SERVICES = ['Saç Kesimi', 'Sakal Tıraşı', 'Yıkama & Stil', 'Saç Boyama', 'Çocuk Saç Kesimi'];
 
 const pool = mysql.createPool({
@@ -36,12 +49,41 @@ async function ensureColumn(tableName, columnName, columnDefinition) {
   }
 }
 
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 64, 'sha512').toString('hex');
+  return { salt, hash };
+}
+
+function verifyPassword(password, salt, expectedHash) {
+  if (!salt || !expectedHash) return false;
+  const { hash } = hashPassword(password, salt);
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(expectedHash, 'hex'));
+}
+
 async function init() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS barber_shops (
+      id INT NOT NULL AUTO_INCREMENT,
+      name VARCHAR(255) NOT NULL,
+      username VARCHAR(100) NOT NULL UNIQUE,
+      passwordHash VARCHAR(128) NOT NULL,
+      passwordSalt VARCHAR(64) NOT NULL,
+      slug VARCHAR(140) NOT NULL UNIQUE,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS masters (
       id INT NOT NULL AUTO_INCREMENT,
+      shopId INT NULL,
       name VARCHAR(255) NOT NULL UNIQUE,
-      PRIMARY KEY (id)
+      username VARCHAR(100) NULL UNIQUE,
+      passwordHash VARCHAR(128) NULL,
+      passwordSalt VARCHAR(64) NULL,
+      slug VARCHAR(140) NULL UNIQUE,
+      PRIMARY KEY (id),
+      INDEX idx_masters_shop (shopId)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -103,8 +145,40 @@ async function init() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await ensureColumn('masters', 'username', 'username VARCHAR(100) NULL UNIQUE AFTER name');
+  await ensureColumn('masters', 'passwordHash', 'passwordHash VARCHAR(128) NULL AFTER username');
+  await ensureColumn('masters', 'passwordSalt', 'passwordSalt VARCHAR(64) NULL AFTER passwordHash');
+  await ensureColumn('masters', 'slug', 'slug VARCHAR(140) NULL UNIQUE AFTER passwordSalt');
+  await ensureColumn('masters', 'shopId', 'shopId INT NULL AFTER id');
+
+  const existingShops = await query('SELECT id FROM barber_shops WHERE username = ?', [DEFAULT_SHOP.username]);
+  let defaultShopId = existingShops[0]?.id;
+  if (!defaultShopId) {
+    const { salt, hash } = hashPassword(DEFAULT_SHOP.password);
+    const [result] = await pool.execute(
+      `INSERT INTO barber_shops (name, username, passwordHash, passwordSalt, slug)
+       VALUES (?, ?, ?, ?, ?)`,
+      [DEFAULT_SHOP.name, DEFAULT_SHOP.username, hash, salt, DEFAULT_SHOP.slug]
+    );
+    defaultShopId = result.insertId;
+  }
+
   for (const name of DEFAULT_MASTERS) {
     await query('INSERT IGNORE INTO masters (name) VALUES (?)', [name]);
+    await query('UPDATE masters SET shopId = COALESCE(shopId, ?) WHERE name = ?', [defaultShopId, name]);
+  }
+
+  for (const item of DEFAULT_MASTER_CREDENTIALS) {
+    const { salt, hash } = hashPassword(DEFAULT_MASTER_PASSWORD);
+    await query(
+      `UPDATE masters
+       SET username = COALESCE(username, ?),
+           slug = COALESCE(slug, ?),
+           passwordSalt = COALESCE(passwordSalt, ?),
+           passwordHash = COALESCE(passwordHash, ?)
+       WHERE name = ?`,
+      [item.username, item.slug, salt, hash, item.name]
+    );
   }
 
   await ensureColumn('appointments', 'clientIp', 'clientIp VARCHAR(45) NULL AFTER note');
@@ -162,15 +236,76 @@ async function _setServiceBuffer(masterId, service, bufferMinutes) {
 module.exports = {
   ready,
 
-  async getMasters() {
+  async getShopById(id) {
     await ensureReady();
-    return query('SELECT id, name FROM masters ORDER BY id');
+    const rows = await query('SELECT id, name, username, slug FROM barber_shops WHERE id = ?', [id]);
+    return rows[0] || null;
+  },
+
+  async getShopBySlug(slug) {
+    await ensureReady();
+    const rows = await query('SELECT id, name, username, slug FROM barber_shops WHERE slug = ?', [slug]);
+    return rows[0] || null;
+  },
+
+  async verifyShopLogin(username, password) {
+    await ensureReady();
+    const rows = await query(
+      'SELECT id, name, username, slug, passwordHash, passwordSalt FROM barber_shops WHERE username = ?',
+      [String(username || '').trim()]
+    );
+
+    const shop = rows[0];
+    if (!shop || !verifyPassword(password, shop.passwordSalt, shop.passwordHash)) {
+      return null;
+    }
+
+    return {
+      id: shop.id,
+      name: shop.name,
+      username: shop.username,
+      slug: shop.slug
+    };
+  },
+
+  async getMasters(shopId = null) {
+    await ensureReady();
+    if (shopId) {
+      return query('SELECT id, shopId, name, username, slug FROM masters WHERE shopId = ? ORDER BY id', [shopId]);
+    }
+    return query('SELECT id, shopId, name, username, slug FROM masters ORDER BY id');
   },
 
   async getMasterById(id) {
     await ensureReady();
-    const rows = await query('SELECT id, name FROM masters WHERE id = ?', [id]);
+    const rows = await query('SELECT id, shopId, name, username, slug FROM masters WHERE id = ?', [id]);
     return rows[0] || null;
+  },
+
+  async getMasterBySlug(slug) {
+    await ensureReady();
+    const rows = await query('SELECT id, shopId, name, username, slug FROM masters WHERE slug = ?', [slug]);
+    return rows[0] || null;
+  },
+
+  async verifyMasterLogin(username, password) {
+    await ensureReady();
+    const rows = await query(
+      'SELECT id, name, username, slug, passwordHash, passwordSalt FROM masters WHERE username = ?',
+      [String(username || '').trim()]
+    );
+
+    const master = rows[0];
+    if (!master || !verifyPassword(password, master.passwordSalt, master.passwordHash)) {
+      return null;
+    }
+
+    return {
+      id: master.id,
+      name: master.name,
+      username: master.username,
+      slug: master.slug
+    };
   },
 
   async createAppointment({ masterId, firstName, lastName, time, service, note, clientIp }) {
@@ -359,9 +494,11 @@ module.exports = {
     );
   },
 
-  async deleteClosure(closureId) {
+  async deleteClosure(closureId, masterId = null) {
     await ensureReady();
-    const [result] = await pool.execute('DELETE FROM closures WHERE id = ?', [closureId]);
+    const [result] = masterId
+      ? await pool.execute('DELETE FROM closures WHERE id = ? AND masterId = ?', [closureId, masterId])
+      : await pool.execute('DELETE FROM closures WHERE id = ?', [closureId]);
     return { deleted: result.affectedRows };
   },
 

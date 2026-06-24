@@ -24,8 +24,24 @@ const appointmentSubmitBtn = document.getElementById('appointmentSubmitBtn');
 const appointmentCancelEditBtn = document.getElementById('appointmentCancelEditBtn');
 const appointmentMessage = document.getElementById('appointmentMessage');
 const appointmentList = document.getElementById('appointmentList');
+const panelMasterName = document.getElementById('panelMasterName');
+const generateAppointmentLinkBtn = document.getElementById('generateAppointmentLinkBtn');
+const appointmentLinkInput = document.getElementById('appointmentLinkInput');
+const copyAppointmentLinkBtn = document.getElementById('copyAppointmentLinkBtn');
+const generateQrCodeBtn = document.getElementById('generateQrCodeBtn');
+const printQrCodeBtn = document.getElementById('printQrCodeBtn');
+const qrCodePanel = document.getElementById('qrCodePanel');
+const qrCodeImage = document.getElementById('qrCodeImage');
+const qrCodeUrl = document.getElementById('qrCodeUrl');
+const logoutBtn = document.getElementById('logoutBtn');
+const linkMessage = document.getElementById('linkMessage');
+const adminTabs = document.querySelectorAll('[data-admin-tab]');
+const adminScreens = document.querySelectorAll('[data-admin-screen]');
 
 let appointments = [];
+let currentShop = null;
+let currentAppointmentUrl = '';
+let currentQrDataUrl = '';
 let displayedMonth = new Date();
 displayedMonth.setDate(1);
 let selectedDate = new Date();
@@ -33,6 +49,7 @@ let currentBufferMinutes = 30;
 let currentClosures = [];
 let editingAppointmentId = null;
 let controlsInitialized = false;
+let activeAdminScreen = 'calendar';
 const SERVICES = ['Saç Kesimi','Sakal Tıraşı','Yıkama & Stil','Saç Boyama','Çocuk Saç Kesimi'];
 
 const WEEKDAYS = ['Pts', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
@@ -274,6 +291,12 @@ function initControls() {
   if (controlsInitialized) return;
   controlsInitialized = true;
 
+  adminTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      showAdminScreen(tab.dataset.adminTab);
+    });
+  });
+
   prevMonthBtn.addEventListener('click', () => {
     displayedMonth.setMonth(displayedMonth.getMonth() - 1);
     renderCalendar();
@@ -298,6 +321,54 @@ function initControls() {
       resetAppointmentForm();
     });
   }
+
+  if (generateAppointmentLinkBtn) {
+    generateAppointmentLinkBtn.addEventListener('click', generateAppointmentLink);
+  }
+
+  if (copyAppointmentLinkBtn) {
+    copyAppointmentLinkBtn.addEventListener('click', copyAppointmentLink);
+  }
+
+  if (generateQrCodeBtn) {
+    generateQrCodeBtn.addEventListener('click', generateQrCode);
+  }
+
+  if (printQrCodeBtn) {
+    printQrCodeBtn.addEventListener('click', printQrCode);
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', logout);
+  }
+
+  if (adminMasterSelect) {
+    adminMasterSelect.addEventListener('change', async () => {
+      resetAppointmentForm();
+      await loadAppointments();
+    });
+  }
+
+  showAdminScreen(activeAdminScreen);
+}
+
+function showAdminScreen(screenName) {
+  activeAdminScreen = screenName || 'calendar';
+
+  adminTabs.forEach(tab => {
+    const isActive = tab.dataset.adminTab === activeAdminScreen;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', String(isActive));
+  });
+
+  adminScreens.forEach(screen => {
+    screen.hidden = screen.dataset.adminScreen !== activeAdminScreen;
+  });
+
+  if (activeAdminScreen === 'calendar') {
+    renderCalendar();
+    renderTimeline();
+  }
 }
 
 async function parseJsonSafely(response) {
@@ -307,6 +378,163 @@ async function parseJsonSafely(response) {
   } catch {
     throw new Error(text || 'Sunucudan gelen yanıt JSON değil.');
   }
+}
+
+async function loadBarberSession() {
+  const response = await fetch('/api/barber-session');
+  const result = await parseJsonSafely(response);
+  if (!response.ok) {
+    window.location.href = '/login.html';
+    throw new Error(result.error || 'Oturum bulunamadı.');
+  }
+
+  currentShop = result.shop;
+  currentAppointmentUrl = result.appointmentUrl;
+  const masters = result.masters || [];
+  adminMasterSelect.innerHTML = masters.length
+    ? masters.map(master => `<option value="${master.id}">${master.name}</option>`).join('')
+    : '<option value="">Usta bulunamadi</option>';
+  if (masters.length) {
+    adminMasterSelect.value = String(masters[0].id);
+  }
+  panelMasterName.textContent = currentShop
+    ? `${currentShop.name} icin dukkan paneli`
+    : 'Dukkan paneli';
+  appointmentLinkInput.value = currentAppointmentUrl || '';
+}
+
+async function generateAppointmentLink() {
+  linkMessage.className = 'message';
+  linkMessage.textContent = '';
+
+  try {
+    const response = await fetch('/api/barber-appointment-link');
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'Link oluşturulamadı.');
+
+    currentAppointmentUrl = result.appointmentUrl;
+    appointmentLinkInput.value = currentAppointmentUrl;
+    linkMessage.textContent = 'Randevu linkiniz hazır.';
+    linkMessage.classList.add('success');
+  } catch (error) {
+    linkMessage.textContent = error.message;
+    linkMessage.classList.add('error');
+  }
+}
+
+async function copyAppointmentLink() {
+  if (!appointmentLinkInput.value) {
+    await generateAppointmentLink();
+  }
+
+  try {
+    await navigator.clipboard.writeText(appointmentLinkInput.value);
+    linkMessage.textContent = 'Randevu linki kopyalandı.';
+    linkMessage.className = 'message success';
+  } catch {
+    appointmentLinkInput.select();
+    linkMessage.textContent = 'Link alanını seçtim, kopyalamak için Ctrl+C kullanabilirsiniz.';
+    linkMessage.className = 'message warning';
+  }
+}
+
+async function generateQrCode() {
+  linkMessage.className = 'message';
+  linkMessage.textContent = '';
+
+  try {
+    const response = await fetch('/api/barber-appointment-qr');
+    const result = await parseJsonSafely(response);
+    if (!response.ok) throw new Error(result.error || 'QR kod oluşturulamadı.');
+
+    currentAppointmentUrl = result.appointmentUrl;
+    currentQrDataUrl = result.qrDataUrl;
+    appointmentLinkInput.value = currentAppointmentUrl;
+    qrCodeImage.src = currentQrDataUrl;
+    qrCodeUrl.textContent = currentAppointmentUrl;
+    qrCodePanel.hidden = false;
+    printQrCodeBtn.disabled = false;
+    linkMessage.textContent = 'QR kodunuz hazır.';
+    linkMessage.className = 'message success';
+  } catch (error) {
+    linkMessage.textContent = error.message;
+    linkMessage.className = 'message error';
+  }
+}
+
+function printQrCode() {
+  if (!currentQrDataUrl || !currentAppointmentUrl) {
+    linkMessage.textContent = 'Önce QR kod oluşturun.';
+    linkMessage.className = 'message warning';
+    return;
+  }
+
+  const printWindow = window.open('', '_blank', 'width=720,height=800');
+  if (!printWindow) {
+    linkMessage.textContent = 'Yazdırma penceresi açılamadı. Tarayıcı izinlerini kontrol edin.';
+    linkMessage.className = 'message error';
+    return;
+  }
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="tr">
+      <head>
+        <meta charset="utf-8" />
+        <title>BerberTakip QR Kod</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            color: #0f172a;
+          }
+          .print-card {
+            width: min(92vw, 520px);
+            text-align: center;
+            padding: 32px;
+            border: 1px solid #cbd5e1;
+            border-radius: 18px;
+          }
+          h1 {
+            margin: 0 0 10px;
+            font-size: 28px;
+          }
+          p {
+            margin: 8px 0 20px;
+            color: #475569;
+            overflow-wrap: anywhere;
+          }
+          img {
+            width: 320px;
+            height: 320px;
+            max-width: 100%;
+          }
+        </style>
+      </head>
+      <body>
+        <section class="print-card">
+          <h1>BerberTakip Randevu</h1>
+          <p>${currentAppointmentUrl}</p>
+          <img src="${currentQrDataUrl}" alt="Randevu QR kodu" />
+        </section>
+        <script>
+          window.onload = () => {
+            window.focus();
+            window.print();
+          };
+        <\/script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+async function logout() {
+  await fetch('/api/barber-logout', { method: 'POST' });
+  window.location.href = '/login.html';
 }
 
 async function loadSettings() {
@@ -462,7 +690,7 @@ async function deleteClosure(closureId) {
   }
 
   try {
-    const response = await fetch(`/api/closures/${encodeURIComponent(closureId)}`, {
+    const response = await fetch(`/api/closures/${encodeURIComponent(closureId)}?masterId=${encodeURIComponent(masterId)}`, {
       method: 'DELETE'
     });
     const result = await parseJsonSafely(response);
@@ -567,7 +795,7 @@ async function loadMasters() {
 }
 
 // initialize masters then appointments
-loadMasters().then(async () => {
+loadBarberSession().then(async () => {
   initControls();
   populateAppointmentServiceOptions();
   await loadAppointments();

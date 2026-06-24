@@ -113,6 +113,57 @@ main {
   padding: 24px;
 }
 
+.admin-tabs {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  overflow-x: auto;
+  padding: 8px;
+  margin: 0 0 20px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.06);
+}
+
+.admin-tab {
+  width: auto;
+  white-space: nowrap;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: transparent;
+  color: #334155;
+  border: 1px solid transparent;
+  box-shadow: none;
+  font-size: 0.95rem;
+}
+
+.admin-tab:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+  transform: none;
+}
+
+.admin-tab.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+
+.admin-screen[hidden] {
+  display: none;
+}
+
+.panel-filter {
+  width: min(100%, 340px);
+  margin: 18px auto 0;
+  text-align: left;
+}
+
+.panel-filter select {
+  margin-top: 8px;
+}
+
 label {
   display: block;
   margin-bottom: 16px;
@@ -193,6 +244,60 @@ button:hover {
   display: block;
   background: #fee2e2;
   color: #991b1b;
+}
+
+.message.warning {
+  display: block;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.auth-card {
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+.link-tools {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr auto auto auto auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.link-tools input {
+  min-width: 0;
+}
+
+.qr-panel {
+  margin-top: 18px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+}
+
+.qr-panel[hidden] {
+  display: none;
+}
+
+.qr-panel img {
+  width: 220px;
+  height: 220px;
+  padding: 10px;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+}
+
+.qr-panel p {
+  max-width: 100%;
+  margin: 0;
+  color: #475569;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .table-card {
@@ -477,6 +582,10 @@ th {
 
 @media (max-width: 640px) {
   .service-setting-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .link-tools {
     grid-template-columns: 1fr;
   }
 

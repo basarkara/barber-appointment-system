@@ -9,10 +9,16 @@ const servicePriceInfo = document.getElementById('servicePriceInfo');
 const appointmentNoteInput = document.getElementById('appointmentNote');
 
 let serviceOptions = [];
+const barberSlug = getBarberSlugFromPath();
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 18;
 const TIME_STEP_MINUTES = 15;
+
+function getBarberSlugFromPath() {
+  const match = window.location.pathname.match(/^\/randevu\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 function formatOptionLabel(date) {
   return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -82,7 +88,8 @@ async function fetchAvailability(date) {
       return;
     }
 
-    const response = await fetch(`/api/availability?date=${encodeURIComponent(date)}&masterId=${encodeURIComponent(masterId)}`);
+    const shopParam = barberSlug ? `&shopSlug=${encodeURIComponent(barberSlug)}` : '';
+    const response = await fetch(`/api/availability?date=${encodeURIComponent(date)}&masterId=${encodeURIComponent(masterId)}${shopParam}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Uygunluk bilgisi alınamadı.');
 
@@ -112,6 +119,27 @@ async function fetchAvailability(date) {
 async function loadMasters() {
   if (!masterSelect) return;
   try {
+    if (barberSlug) {
+      const res = await fetch(`/api/barbers/${encodeURIComponent(barberSlug)}`);
+      const shop = await res.json();
+      if (!res.ok) throw new Error(shop.error || 'Berber bulunamadi.');
+
+      const masters = shop.masters || [];
+      masterSelect.innerHTML = `<option value="">Lutfen usta secin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+      if (masters.length === 1) {
+        masterSelect.value = String(masters[0].id);
+        loadServiceOptions(masters[0].id);
+      }
+      masterSelect.addEventListener('change', () => {
+        const masterId = masterSelect.value;
+        if (masterId) {
+          loadServiceOptions(masterId);
+        }
+        if (dateInput.value) fetchAvailability(dateInput.value);
+      });
+      return;
+    }
+
     const res = await fetch('/api/masters');
     const masters = await res.json();
     masterSelect.innerHTML = `<option value="">Lütfen usta seçin</option>` + masters.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
@@ -155,7 +183,8 @@ serviceSelect.addEventListener('change', () => {
 async function loadServiceOptions(masterId) {
   if (!serviceSelect) return;
   try {
-    const response = await fetch(`/api/service-options?masterId=${encodeURIComponent(masterId)}`);
+    const shopParam = barberSlug ? `&shopSlug=${encodeURIComponent(barberSlug)}` : '';
+    const response = await fetch(`/api/service-options?masterId=${encodeURIComponent(masterId)}${shopParam}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'İşlem seçenekleri yüklenemedi.');
     serviceOptions = result.serviceSettings || [];
@@ -190,6 +219,7 @@ form.addEventListener('submit', async (event) => {
     time: timeValue,
     service: formData.get('service'),
     note: (formData.get('note') || '').trim(),
+    shopSlug: barberSlug,
     website: (formData.get('website') || '').trim()
   };
 

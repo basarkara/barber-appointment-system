@@ -54,10 +54,23 @@ npm start
 
 ## Giriş Bilgileri
 
-- Kullanıcı adı: `admin`
-- Şifre: `1234`
+- Ali Usta: kullanıcı adı `ali`, şifre `1234`
+- Mehmet Usta: kullanıcı adı `mehmet`, şifre `1234`
+- Ahmet Usta: kullanıcı adı `ahmet`, şifre `1234`
 
 > Not: Prod/demo için sabit kullanıcı bilgileri yerine ortam değişkenleri kullanılmalı. Aşağıdaki `.env.example` dosyasına göz atın.
+
+## Berber Paneli ve Kişisel Randevu Linki
+
+Ustalar ana sayfadaki `Usta Girişi` bağlantısından kendi kullanıcı adı ve şifresiyle giriş yapar. Paneldeki `Randevu Linki Oluştur` butonu, her ustaya özel randevu sayfasını üretir. `QR Kod Oluştur` butonu aynı link için taranabilir QR kod üretir; `Yazdır` seçeneğiyle müşterilerin görebileceği şekilde çıktı alınabilir.
+
+Örnek linkler:
+
+- `http://localhost:3000/randevu/ali-usta`
+- `http://localhost:3000/randevu/mehmet-usta`
+- `http://localhost:3000/randevu/ahmet-usta`
+
+Bu linklerden alınan randevular ilgili ustanın kendi `masterId` değeriyle kaydedilir. Panel API'leri de oturumdaki ustaya göre filtrelenir.
 
 ## WhatsApp Bildirimi
 

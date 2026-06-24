@@ -1,4 +1,6 @@
 const path = require('path');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
 require('dotenv').config();
 const express = require('express');
 const basicAuth = require('express-basic-auth');
@@ -15,6 +17,9 @@ const APPOINTMENT_RATE_LIMIT_WINDOW_MINUTES = Number(process.env.APPOINTMENT_RAT
 const APPOINTMENT_RATE_LIMIT_MAX = Number(process.env.APPOINTMENT_RATE_LIMIT_MAX || 5);
 const APPOINTMENT_MAX_ACTIVE_PER_IP = Number(process.env.APPOINTMENT_MAX_ACTIVE_PER_IP || 3);
 const APPOINTMENT_MAX_ACTIVE_PER_CUSTOMER = Number(process.env.APPOINTMENT_MAX_ACTIVE_PER_CUSTOMER || 2);
+const SESSION_SECRET = process.env.SESSION_SECRET || 'berbertakip-dev-secret-change-me';
+const SESSION_COOKIE_NAME = 'berbertakip_session';
+const SESSION_MAX_AGE_MS = Number(process.env.SESSION_MAX_AGE_HOURS || 12) * 60 * 60 * 1000;
 const telegramBot = TELEGRAM_BOT_TOKEN ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false }) : null;
 const isTelegramEnabled = telegramBot && TELEGRAM_CHAT_ID;
 const appointmentRateLimits = new Map();
@@ -42,6 +47,102 @@ const adminAuth = basicAuth({
 function getClientIp(req) {
   const value = req.ip || req.socket?.remoteAddress || 'unknown';
   return value.replace(/^::ffff:/, '');
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  return header.split(';').reduce((cookies, item) => {
+    const index = item.indexOf('=');
+    if (index === -1) return cookies;
+    const key = item.slice(0, index).trim();
+    const value = item.slice(index + 1).trim();
+    cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
+
+function signSession(shopId, expiresAt) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(`${shopId}.${expiresAt}`)
+    .digest('hex');
+}
+
+function createSessionToken(shopId) {
+  const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
+  const signature = signSession(shopId, expiresAt);
+  return Buffer.from(`${shopId}.${expiresAt}.${signature}`).toString('base64url');
+}
+
+function readSessionToken(req) {
+  const token = parseCookies(req)[SESSION_COOKIE_NAME];
+  if (!token) return null;
+
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const [shopId, expiresAt, signature] = decoded.split('.');
+    if (!shopId || !expiresAt || !signature) return null;
+    if (Date.now() > Number(expiresAt)) return null;
+
+    const expected = signSession(shopId, expiresAt);
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      return null;
+    }
+
+    return Number(shopId);
+  } catch {
+    return null;
+  }
+}
+
+function setSessionCookie(res, shopId) {
+  const token = createSessionToken(shopId);
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: SESSION_MAX_AGE_MS
+  });
+}
+
+function clearSessionCookie(res) {
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax'
+  });
+}
+
+async function getAuthenticatedShop(req) {
+  const shopId = readSessionToken(req);
+  if (!shopId) return null;
+  return db.getShopById(shopId);
+}
+
+function getAppointmentUrl(req, shop) {
+  return `${req.protocol}://${req.get('host')}/randevu/${encodeURIComponent(shop.slug)}`;
+}
+
+async function barberAuth(req, res, next) {
+  const shop = await getAuthenticatedShop(req);
+  if (!shop) {
+    return res.status(401).json({ error: 'Lütfen usta girişi yapın.' });
+  }
+
+  req.shop = shop;
+  next();
+}
+
+async function getShopMasterOrNull(shopId, masterId) {
+  const id = parseInt(masterId, 10);
+  if (Number.isNaN(id)) return null;
+  const master = await db.getMasterById(id);
+  if (!master || Number(master.shopId) !== Number(shopId)) return null;
+  return master;
+}
+
+async function appointmentBelongsToShop(appointment, shopId) {
+  if (!appointment) return false;
+  const master = await db.getMasterById(appointment.masterId);
+  return Boolean(master && Number(master.shopId) === Number(shopId));
 }
 
 function isAdminRequest(req) {
@@ -109,12 +210,90 @@ async function sendTelegramNotification(appointment, masterName) {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.post('/api/barber-login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli.' });
+  }
+
+  try {
+    const shop = await db.verifyShopLogin(username, password);
+    if (!shop) {
+      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
+    }
+
+    const masters = await db.getMasters(shop.id);
+    setSessionCookie(res, shop.id);
+    res.json({ shop, masters, appointmentUrl: getAppointmentUrl(req, shop) });
+  } catch (error) {
+    res.status(500).json({ error: 'Giriş yapılamadı.' });
+  }
+});
+
+app.post('/api/barber-logout', (req, res) => {
+  clearSessionCookie(res);
+  res.json({ success: true });
+});
+
+app.get('/api/barber-session', async (req, res) => {
+  try {
+    const shop = await getAuthenticatedShop(req);
+    if (!shop) {
+      return res.status(401).json({ error: 'Oturum bulunamadı.' });
+    }
+
+    const masters = await db.getMasters(shop.id);
+    res.json({ shop, masters, appointmentUrl: getAppointmentUrl(req, shop) });
+  } catch (error) {
+    res.status(500).json({ error: 'Oturum bilgisi alınamadı.' });
+  }
+});
+
+app.get('/api/barber-appointment-link', barberAuth, (req, res) => {
+  res.json({ appointmentUrl: getAppointmentUrl(req, req.shop) });
+});
+
+app.get('/api/barber-appointment-qr', barberAuth, async (req, res) => {
+  const appointmentUrl = getAppointmentUrl(req, req.shop);
+
+  try {
+    const qrDataUrl = await QRCode.toDataURL(appointmentUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 320,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    });
+
+    res.json({ appointmentUrl, qrDataUrl });
+  } catch (error) {
+    res.status(500).json({ error: 'QR kod oluşturulamadı.' });
+  }
+});
+
+app.get('/api/barbers/:slug', async (req, res) => {
+  try {
+    const shop = await db.getShopBySlug(req.params.slug);
+    if (!shop) {
+      return res.status(404).json({ error: 'Berber bulunamadı.' });
+    }
+
+    const masters = await db.getMasters(shop.id);
+    res.json({ id: shop.id, name: shop.name, slug: shop.slug, masters });
+  } catch (error) {
+    res.status(500).json({ error: 'Berber bilgisi alınamadı.' });
+  }
+});
+
 app.post('/api/appointments', async (req, res) => {
   console.log('POST /api/appointments received', { body: req.body });
 
-  const { masterId, firstName, lastName, time, service, note, website } = req.body;
+  const { masterId, firstName, lastName, time, service, note, website, shopSlug } = req.body;
   const clientIp = getClientIp(req);
-  const adminBypass = isAdminRequest(req);
+  const sessionShop = await getAuthenticatedShop(req);
+  const adminBypass = isAdminRequest(req) || Boolean(sessionShop);
 
   if (website) {
     return res.status(400).json({ error: 'Randevu isteği doğrulanamadı.' });
@@ -143,6 +322,23 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
+    let appointmentShop = sessionShop;
+
+    if (!appointmentShop && shopSlug) {
+      appointmentShop = await db.getShopBySlug(shopSlug);
+    }
+
+    if (!appointmentShop) {
+      return res.status(400).json({ error: 'Randevu linki dogrulanamadi.' });
+      return res.status(400).json({ error: 'Randevu linki doÄŸrulanamadÄ±.' });
+    }
+
+    const selectedMaster = await getShopMasterOrNull(appointmentShop.id, mId);
+    if (!selectedMaster) {
+      return res.status(400).json({ error: 'Gecersiz usta secimi.' });
+      return res.status(400).json({ error: 'GeÃ§ersiz usta seÃ§imi.' });
+    }
+
     if (!adminBypass) {
       const fromTime = toComparableLocalTime(new Date());
       const activeByIp = await db.countFutureAppointmentsByClientIp(clientIp, fromTime);
@@ -171,7 +367,7 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
-app.patch('/api/appointments/:id', adminAuth, async (req, res) => {
+app.patch('/api/appointments/:id', barberAuth, async (req, res) => {
   const appointmentId = parseInt(req.params.id, 10);
   const { masterId, firstName, lastName, time, service, note } = req.body;
   if (Number.isNaN(appointmentId)) {
@@ -197,6 +393,16 @@ app.patch('/api/appointments/:id', adminAuth, async (req, res) => {
   }
 
   try {
+    const existingAppointment = await db.getAppointmentById(appointmentId);
+    if (!(await appointmentBelongsToShop(existingAppointment, req.shop.id))) {
+      return res.status(404).json({ error: 'Randevu bulunamadı.' });
+    }
+
+    const selectedMaster = await getShopMasterOrNull(req.shop.id, mId);
+    if (!selectedMaster) {
+      return res.status(400).json({ error: 'Geçersiz usta seçimi.' });
+    }
+
     const bufferMinutes = await db.getServiceBuffer(mId, service);
     const conflict = await db.hasAppointmentConflict(mId, requestedTime.toISOString(), bufferMinutes, appointmentId);
     if (conflict) {
@@ -213,13 +419,18 @@ app.patch('/api/appointments/:id', adminAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/appointments/:id', adminAuth, async (req, res) => {
+app.delete('/api/appointments/:id', barberAuth, async (req, res) => {
   const appointmentId = parseInt(req.params.id, 10);
   if (Number.isNaN(appointmentId)) {
     return res.status(400).json({ error: 'Geçersiz randevu kimliği.' });
   }
 
   try {
+    const existingAppointment = await db.getAppointmentById(appointmentId);
+    if (!(await appointmentBelongsToShop(existingAppointment, req.shop.id))) {
+      return res.status(404).json({ error: 'Randevu bulunamadı.' });
+    }
+
     const result = await db.deleteAppointment(appointmentId);
     if (!result.deleted) {
       return res.status(404).json({ error: 'Randevu bulunamadı.' });
@@ -245,6 +456,12 @@ app.get('/api/service-options', async (req, res) => {
   if (!masterId) return res.status(400).json({ error: 'Usta parametresi eksik.' });
 
   try {
+    if (req.query.shopSlug) {
+      const shop = await db.getShopBySlug(req.query.shopSlug);
+      const master = shop ? await getShopMasterOrNull(shop.id, masterId) : null;
+      if (!master) return res.status(404).json({ error: 'Usta bulunamadÄ±.' });
+    }
+
     const serviceSettings = await db.getServiceSettings(masterId);
     res.json({ serviceSettings });
   } catch (error) {
@@ -254,7 +471,7 @@ app.get('/api/service-options', async (req, res) => {
 
 // availability per master
 app.get('/api/availability', async (req, res) => {
-  const { date, masterId } = req.query;
+  const { date, masterId, shopSlug } = req.query;
   if (!date) {
     return res.status(400).json({ error: 'Tarih parametresi eksik.' });
   }
@@ -264,6 +481,12 @@ app.get('/api/availability', async (req, res) => {
   console.log('/api/availability called', { date, masterId: mId });
 
   try {
+    if (shopSlug) {
+      const shop = await db.getShopBySlug(shopSlug);
+      const master = shop ? await getShopMasterOrNull(shop.id, mId) : null;
+      if (!master) return res.status(404).json({ error: 'Usta bulunamadÄ±.' });
+    }
+
     const appointments = await db.getAppointmentsByDate(date, mId);
 
     const appointmentsWithBuffer = await Promise.all(appointments.map(async (a) => {
@@ -280,9 +503,10 @@ app.get('/api/availability', async (req, res) => {
   }
 });
 
-app.get('/api/closures', adminAuth, async (req, res) => {
-  const { masterId, date } = req.query;
-  const mId = masterId ? parseInt(masterId, 10) : null;
+app.get('/api/closures', barberAuth, async (req, res) => {
+  const { date, masterId } = req.query;
+  const master = await getShopMasterOrNull(req.shop.id, masterId);
+  const mId = master ? master.id : null;
   if (!mId) return res.status(400).json({ error: 'Usta seçimi gerekli.' });
   if (!date) return res.status(400).json({ error: 'Tarih parametresi eksik.' });
 
@@ -294,14 +518,16 @@ app.get('/api/closures', adminAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/closures/:id', adminAuth, async (req, res) => {
+app.delete('/api/closures/:id', barberAuth, async (req, res) => {
   const closureId = parseInt(req.params.id, 10);
   if (Number.isNaN(closureId)) {
     return res.status(400).json({ error: 'Geçersiz kapanma kimliği.' });
   }
 
   try {
-    const result = await db.deleteClosure(closureId);
+    const master = await getShopMasterOrNull(req.shop.id, req.query.masterId);
+    if (!master) return res.status(400).json({ error: 'Usta seçimi gerekli.' });
+    const result = await db.deleteClosure(closureId, master ? master.id : null);
     if (!result.deleted) {
       return res.status(404).json({ error: 'Kapatma bulunamadı.' });
     }
@@ -312,20 +538,24 @@ app.delete('/api/closures/:id', adminAuth, async (req, res) => {
 });
 
 // closures endpoints
-app.post('/api/closures', adminAuth, async (req, res) => {
+app.post('/api/closures', barberAuth, async (req, res) => {
   const { masterId, start, end } = req.body;
-  if (!masterId || !start || !end) return res.status(400).json({ error: 'Eksik parametre' });
+  const master = await getShopMasterOrNull(req.shop.id, masterId);
+  if (!start || !end) return res.status(400).json({ error: 'Eksik parametre' });
+  if (!master) return res.status(400).json({ error: 'Usta seçimi gerekli.' });
   try {
-    const c = await db.addClosure(masterId, start, end);
+    const c = await db.addClosure(master.id, start, end);
     res.json(c);
   } catch (e) {
     res.status(500).json({ error: 'Kapatma eklenemedi.' });
   }
 });
 
-app.get('/api/appointments', adminAuth, async (req, res) => {
+app.get('/api/appointments', barberAuth, async (req, res) => {
   try {
-    const masterId = req.query.masterId ? parseInt(req.query.masterId, 10) : null;
+    const master = await getShopMasterOrNull(req.shop.id, req.query.masterId);
+    if (!master) return res.status(400).json({ error: 'Usta seçimi gerekli.' });
+    const masterId = master.id;
     const appointments = await db.getAppointments(masterId);
     res.json(appointments);
   } catch (error) {
@@ -335,9 +565,10 @@ app.get('/api/appointments', adminAuth, async (req, res) => {
 
 
 
-app.get('/api/settings', adminAuth, async (req, res) => {
+app.get('/api/settings', barberAuth, async (req, res) => {
   try {
-    const masterId = req.query.masterId ? parseInt(req.query.masterId, 10) : null;
+    const master = await getShopMasterOrNull(req.shop.id, req.query.masterId);
+    const masterId = master ? master.id : null;
     if (!masterId) {
       return res.status(400).json({ error: 'Usta seçimi gerekli.' });
     }
@@ -355,9 +586,10 @@ app.get('/api/settings', adminAuth, async (req, res) => {
   }
 });
 
-app.post('/api/settings', adminAuth, async (req, res) => {
+app.post('/api/settings', barberAuth, async (req, res) => {
   const { serviceBuffers, servicePrices, masterId } = req.body;
-  const selectedMasterId = masterId ? parseInt(masterId, 10) : null;
+  const master = await getShopMasterOrNull(req.shop.id, masterId);
+  const selectedMasterId = master ? master.id : null;
 
   if (!selectedMasterId) {
     return res.status(400).json({ error: 'Lütfen önce bir usta seçin.' });
@@ -390,8 +622,9 @@ app.post('/api/settings', adminAuth, async (req, res) => {
   }
 });
 
-app.use('/admin.html', adminAuth);
-app.use('/admin.js', adminAuth);
+app.get('/randevu/:slug', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'randevu.html'));
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
