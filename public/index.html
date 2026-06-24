@@ -3,71 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Berber Randevu</title>
+  <title>BerberTakip</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="page">
-    <header>
-      <h1>Berber Randevu Sistemi</h1>
-      <p>İsim-soyisim, saat ve işlem seçerek randevunuzu hemen alın.</p>
+    <header class="home-hero">
+      <div class="brand-mark" aria-hidden="true">BT</div>
+      <h1>BerberTakip nedir?</h1>
+      <p>BerberTakip, müşterilerin kolayca randevu almasını ve berberlerin günlük randevu akışını düzenli şekilde yönetmesini sağlayan sade bir takip sistemidir.</p>
+      <div class="home-actions">
+        <a href="/randevu.html" class="button">Randevu Al</a>
+        <a href="/admin.html" class="button button-secondary">Usta Girişi</a>
+      </div>
     </header>
 
-    <main>
-      <section class="card form-card">
-        <h2>Randevu Oluştur</h2>
-        <form id="appointmentForm">
-          <label>
-            Adınız
-            <input type="text" name="firstName" required placeholder="Örn. Ahmet" />
-          </label>
-          <label>
-            Soyadınız
-            <input type="text" name="lastName" required placeholder="Örn. Yılmaz" />
-          </label>
-          <label>
-            Usta Seçiniz
-            <select id="masterSelect" name="masterId" required>
-              <option value="">Lütfen usta seçin</option>
-            </select>
-          </label>
-          <label>
-            Randevu Tarihi
-            <input type="date" id="appointmentDate" name="date" required />
-          </label>
-          <label>
-            Randevu Saati
-            <select id="appointmentTime" name="time" required>
-              <option value="">Lütfen tarih seçin</option>
-            </select>
-          </label>
-          <div id="slotInfo" class="slot-info">Müsait saatler otomatik olarak listelenecektir.</div>
-          <label>
-            İşlem Seçiniz
-            <select id="serviceSelect" name="service" required>
-              <option value="">Seçiniz</option>
-            </select>
-          </label>
-          <div id="servicePriceInfo" class="slot-info">Seçilen işlem için fiyat burada gösterilecektir.</div>
-          <label>
-            Ustaya notunuz. (zorunlu değil)
-            <textarea id="appointmentNote" name="note" maxlength="150" placeholder="Örn. Saçım uzun, boyama istiyorum..." rows="3"></textarea>
-          </label>
-          <button type="submit">Randevu Al</button>
-        </form>
-        <div id="message" class="message"></div>
+    <main class="home-main">
+      <section class="card home-info-card">
+        <h2>Sistem nasıl çalışır?</h2>
+        <p>Müşteri önce randevu almak istediği ustayı, tarihi, saati ve hizmet türünü seçer. Sistem seçilen ustanın mevcut randevularını ve kapalı zamanlarını kontrol ederek yalnızca uygun saatlerin kullanılmasına izin verir.</p>
+        <p>Randevu oluşturulduğunda kayıt MySQL veritabanına kaydedilir. Admin panelinde ustalar kendi randevularını görebilir, düzenleyebilir, silebilir ve çalışma dışı zaman aralıkları ekleyebilir.</p>
+        <p>Spam koruması sayesinde aynı kişinin veya aynı bağlantının kısa sürede çok fazla randevu oluşturması engellenir. Böylece kötü niyetli denemelerin tüm takvimi doldurması zorlaştırılır.</p>
       </section>
 
-      <section class="card info-card">
-        <h2>Bilgilendirme</h2>
-        <p>Randevu talepleriniz sistemimize kaydedilir. Yönetici panelinden tüm randevuları görüntüleyebilirsiniz.</p>
-        <p>
-          <a href="/admin.html" id="masterLoginBtn" class="button">Usta Girişi</a>
-        </p>
+      <section class="home-steps">
+        <article class="card step-card">
+          <span class="step-number">1</span>
+          <h3>Usta ve hizmet seçilir</h3>
+          <p>Müşteri istediği ustayı ve hizmeti seçerek uygun saatleri görür.</p>
+        </article>
+        <article class="card step-card">
+          <span class="step-number">2</span>
+          <h3>Randevu kaydedilir</h3>
+          <p>Seçilen saat uygunsa randevu güvenli şekilde sisteme eklenir.</p>
+        </article>
+        <article class="card step-card">
+          <span class="step-number">3</span>
+          <h3>Admin panelden takip edilir</h3>
+          <p>Berber tarafı günlük programını panelden düzenli olarak yönetir.</p>
+        </article>
       </section>
     </main>
   </div>
-
-  <script src="script.js"></script>
 </body>
 </html>

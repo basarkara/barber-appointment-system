@@ -5,7 +5,7 @@ Basit bir berber randevu sistemi. Kullanıcılar isim, soyisim, saat ve işlem s
 ## Özellikler
 
 - Randevu formu
-- SQLite veritabanı ile randevu kaydı
+- MySQL veritabanı ile randevu kaydı
 - Admin paneli
 - Mobil uyumlu tasarım
 
@@ -23,13 +23,31 @@ cd C:\Users\user\barber-appointment-system
 npm install
 ```
 
-3. Sunucuyu başlatın:
+3. MySQL veritabanını oluşturun:
+
+```sql
+CREATE DATABASE barber_appointment_system
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+4. `.env.example` dosyasını `.env` olarak kopyalayıp MySQL bilgilerinizi doldurun:
+
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=barber_appointment_system
+```
+
+5. Sunucuyu başlatın:
 
 ```powershell
 npm start
 ```
 
-4. Tarayıcıda ziyaret edin:
+6. Tarayıcıda ziyaret edin:
 
 - Kullanıcı: `http://localhost:3000`
 - Admin: `http://localhost:3000/admin.html`
@@ -81,7 +99,7 @@ git branch -M main
 git push -u origin main
 ```
 
-Not: `.gitignore` içinde `appointments.db` ve `.env` bulunuyor — bu yüzden yerel SQLite veritabanı veya gizli anahtarlar Git'e gitmeyecektir.
+Not: `.gitignore` içinde `.env` bulunuyor — bu yüzden gizli anahtarlar ve veritabanı şifreleri Git'e gitmeyecektir.
 
 ## Değiştirilebilir Alanlar
 
@@ -90,5 +108,5 @@ Not: `.gitignore` içinde `appointments.db` ve `.env` bulunuyor — bu yüzden y
 
 ## Not
 
-- `appointments.db` dosyası otomatik olarak oluşturulur.
+- MySQL tabloları uygulama açılışında otomatik olarak oluşturulur.
 - Geliştirme aşamasında portu `PORT` ortam değişkeni ile değiştirebilirsiniz.

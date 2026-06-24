@@ -189,7 +189,8 @@ form.addEventListener('submit', async (event) => {
     lastName: formData.get('lastName').trim(),
     time: timeValue,
     service: formData.get('service'),
-    note: (formData.get('note') || '').trim()
+    note: (formData.get('note') || '').trim(),
+    website: (formData.get('website') || '').trim()
   };
 
   try {

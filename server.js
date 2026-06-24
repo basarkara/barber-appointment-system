@@ -11,8 +11,17 @@ const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || '1234';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const APPOINTMENT_RATE_LIMIT_WINDOW_MINUTES = Number(process.env.APPOINTMENT_RATE_LIMIT_WINDOW_MINUTES || 15);
+const APPOINTMENT_RATE_LIMIT_MAX = Number(process.env.APPOINTMENT_RATE_LIMIT_MAX || 5);
+const APPOINTMENT_MAX_ACTIVE_PER_IP = Number(process.env.APPOINTMENT_MAX_ACTIVE_PER_IP || 3);
+const APPOINTMENT_MAX_ACTIVE_PER_CUSTOMER = Number(process.env.APPOINTMENT_MAX_ACTIVE_PER_CUSTOMER || 2);
 const telegramBot = TELEGRAM_BOT_TOKEN ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false }) : null;
 const isTelegramEnabled = telegramBot && TELEGRAM_CHAT_ID;
+const appointmentRateLimits = new Map();
+
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 console.log('Telegram config:', {
   tokenSet: Boolean(TELEGRAM_BOT_TOKEN),
@@ -29,6 +38,44 @@ const adminAuth = basicAuth({
   challenge: true,
   realm: 'Berber Randevu Sistemi'
 });
+
+function getClientIp(req) {
+  const value = req.ip || req.socket?.remoteAddress || 'unknown';
+  return value.replace(/^::ffff:/, '');
+}
+
+function isAdminRequest(req) {
+  const authorization = req.headers.authorization || '';
+  if (!authorization.startsWith('Basic ')) return false;
+
+  try {
+    const decoded = Buffer.from(authorization.slice(6), 'base64').toString('utf8');
+    return decoded === `${ADMIN_USER}:${ADMIN_PASS}`;
+  } catch {
+    return false;
+  }
+}
+
+function checkAppointmentRateLimit(clientIp) {
+  const now = Date.now();
+  const windowMs = APPOINTMENT_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000;
+  const windowStart = now - windowMs;
+  const current = appointmentRateLimits.get(clientIp) || [];
+  const recent = current.filter((timestamp) => timestamp > windowStart);
+
+  if (recent.length >= APPOINTMENT_RATE_LIMIT_MAX) {
+    appointmentRateLimits.set(clientIp, recent);
+    return false;
+  }
+
+  recent.push(now);
+  appointmentRateLimits.set(clientIp, recent);
+  return true;
+}
+
+function toComparableLocalTime(date) {
+  return date.toISOString().slice(0, 19);
+}
 
 function formatAppointmentTimeForMessage(time) {
   const date = new Date(time);
@@ -65,7 +112,18 @@ app.use(express.urlencoded({ extended: true }));
 app.post('/api/appointments', async (req, res) => {
   console.log('POST /api/appointments received', { body: req.body });
 
-  const { masterId, firstName, lastName, time, service, note } = req.body;
+  const { masterId, firstName, lastName, time, service, note, website } = req.body;
+  const clientIp = getClientIp(req);
+  const adminBypass = isAdminRequest(req);
+
+  if (website) {
+    return res.status(400).json({ error: 'Randevu isteği doğrulanamadı.' });
+  }
+
+  if (!adminBypass && !checkAppointmentRateLimit(clientIp)) {
+    return res.status(429).json({ error: 'Çok fazla randevu denemesi yaptınız. Lütfen biraz sonra tekrar deneyin.' });
+  }
+
   const mId = parseInt(masterId, 10);
   if (Number.isNaN(mId)) {
     return res.status(400).json({ error: 'Lütfen usta seçin.' });
@@ -85,13 +143,26 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
+    if (!adminBypass) {
+      const fromTime = toComparableLocalTime(new Date());
+      const activeByIp = await db.countFutureAppointmentsByClientIp(clientIp, fromTime);
+      if (activeByIp >= APPOINTMENT_MAX_ACTIVE_PER_IP) {
+        return res.status(429).json({ error: 'Bu bağlantıdan çok fazla aktif randevu oluşturuldu. Lütfen işletmeyle iletişime geçin.' });
+      }
+
+      const activeByCustomer = await db.countFutureAppointmentsByCustomer(firstName.trim(), lastName.trim(), fromTime);
+      if (activeByCustomer >= APPOINTMENT_MAX_ACTIVE_PER_CUSTOMER) {
+        return res.status(429).json({ error: 'Bu isimle çok fazla aktif randevu bulunuyor. Lütfen işletmeyle iletişime geçin.' });
+      }
+    }
+
     const bufferMinutes = await db.getServiceBuffer(mId, service);
     const conflict = await db.hasAppointmentConflict(mId, requestedTime.toISOString(), bufferMinutes);
     if (conflict) {
       return res.status(409).json({ error: `Seçtiğiniz saat çakışma nedeniyle dolu.` });
     }
 
-    const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service, note });
+    const appointment = await db.createAppointment({ masterId: mId, firstName, lastName, time, service, note, clientIp });
     const master = await db.getMasterById(mId);
     res.json(appointment);
     await sendTelegramNotification(appointment, master ? master.name : 'Bilinmiyor');
@@ -324,7 +395,20 @@ app.use('/admin.js', adminAuth);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-  console.log('Admin paneli: http://localhost:' + PORT + '/admin.html');
-});
+async function startServer() {
+  try {
+    if (db.ready) {
+      await db.ready;
+    }
+
+    app.listen(PORT, () => {
+      console.log(`Server started on http://localhost:${PORT}`);
+      console.log('Admin paneli: http://localhost:' + PORT + '/admin.html');
+    });
+  } catch (error) {
+    console.error('Sunucu başlatılamadı. MySQL bağlantısını kontrol edin:', error.message || error);
+    process.exit(1);
+  }
+}
+
+startServer();

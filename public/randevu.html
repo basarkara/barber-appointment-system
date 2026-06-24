@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BerberTakip | Randevu Al</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>BerberTakip</h1>
+      <p>İsim-soyisim, saat ve işlem seçerek randevunuzu hemen alın.</p>
+    </header>
+
+    <main>
+      <section class="card form-card">
+        <h2>Randevu Oluştur</h2>
+        <form id="appointmentForm">
+          <label>
+            Adınız
+            <input type="text" name="firstName" required placeholder="Örn. Ahmet" />
+          </label>
+          <label>
+            Soyadınız
+            <input type="text" name="lastName" required placeholder="Örn. Yılmaz" />
+          </label>
+          <label>
+            Usta Seçiniz
+            <select id="masterSelect" name="masterId" required>
+              <option value="">Lütfen usta seçin</option>
+            </select>
+          </label>
+          <label>
+            Randevu Tarihi
+            <input type="date" id="appointmentDate" name="date" required />
+          </label>
+          <label>
+            Randevu Saati
+            <select id="appointmentTime" name="time" required>
+              <option value="">Lütfen tarih seçin</option>
+            </select>
+          </label>
+          <div id="slotInfo" class="slot-info">Müsait saatler otomatik olarak listelenecektir.</div>
+          <label>
+            İşlem Seçiniz
+            <select id="serviceSelect" name="service" required>
+              <option value="">Seçiniz</option>
+            </select>
+          </label>
+          <div id="servicePriceInfo" class="slot-info">Seçilen işlem için fiyat burada gösterilecektir.</div>
+          <label>
+            Ustaya notunuz. (zorunlu değil)
+            <textarea id="appointmentNote" name="note" maxlength="150" placeholder="Örn. Saçım uzun, boyama istiyorum..." rows="3"></textarea>
+          </label>
+          <label class="spam-check" aria-hidden="true">
+            Web sitesi
+            <input type="text" name="website" tabindex="-1" autocomplete="off" />
+          </label>
+          <button type="submit">Randevu Al</button>
+        </form>
+        <div id="message" class="message"></div>
+      </section>
+
+      <section class="card info-card">
+        <h2>Bilgilendirme</h2>
+        <p>Randevu talepleriniz sistemimize kaydedilir. Yönetici panelinden tüm randevuları görüntüleyebilirsiniz.</p>
+        <p>
+          <a href="/" class="button button-secondary">Ana Sayfa</a>
+          <a href="/admin.html" id="masterLoginBtn" class="button">Usta Girişi</a>
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
